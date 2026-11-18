@@ -128,9 +128,15 @@ Window {
                 ToolTip.text: window.tr.tip_home
             }
 
-            // title and what was found, in the middle
+            // title and what was found, in the middle – or as close to it as the tools on the right allow
             Row {
-                anchors.centerIn: parent
+                id: titleRow
+                readonly property real leftLimit: brand.x + brand.width + 16
+                readonly property real rightLimit: tools.x - 16
+                // the chips need about this much; with less room only the title stays, shortened
+                readonly property bool roomForChips: rightLimit - leftLimit > 360
+                anchors.verticalCenter: parent.verticalCenter
+                x: Math.max(leftLimit, Math.min((header.width - width) / 2, rightLimit - width))
                 spacing: 10
                 visible: window.onScore
                 Text {
@@ -139,13 +145,14 @@ Window {
                     color: Theme.text
                     font.pixelSize: 14
                     font.weight: Font.DemiBold
-                    width: Math.min(implicitWidth, header.width * 0.28)
+                    width: Math.max(0, Math.min(implicitWidth, header.width * 0.28,
+                                                titleRow.rightLimit - titleRow.leftLimit - (titleRow.roomForChips ? 230 : 0)))
                     elide: Text.ElideRight
                 }
                 Repeater {
                     model: {
                         const s = controller.result.summary
-                        if (!s) return []
+                        if (!s || !titleRow.roomForChips) return []
                         return [controller.language === "de" ? s.keyDe : s.keyEn, s.meter, s.tempoUnit + " = " + s.tempo]
                     }
                     delegate: Rectangle {
@@ -161,6 +168,7 @@ Window {
             }
 
             Row {
+                id: tools
                 anchors { right: windowButtons.left; rightMargin: 6; verticalCenter: parent.verticalCenter }
                 spacing: 4
 
@@ -178,6 +186,32 @@ Window {
                     }
                     Item { width: 4; height: 1 }
                     IconButton { iconName: "minus"; iconSize: 15; tip: window.tr.tip_zoom_out; onClicked: window.zoomBy(1 / 1.15) }
+                    // how large the pages are; a click shows whole pages again
+                    Rectangle {
+                        visible: scoreView.visible
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 52
+                        height: 28
+                        radius: 8
+                        color: zoomArea.containsMouse ? Theme.surfaceHover : "transparent"
+                        Text {
+                            anchors.centerIn: parent
+                            text: Math.round(scoreView.zoom * 100) + " %"
+                            color: Theme.textDim
+                            font.pixelSize: 12
+                            font.features: { "tnum": 1 }
+                        }
+                        MouseArea {
+                            id: zoomArea
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: scoreView.fit()
+                        }
+                        ToolTip.visible: zoomArea.containsMouse
+                        ToolTip.delay: 600
+                        ToolTip.text: window.tr.tip_zoom_fit
+                    }
                     IconButton { iconName: "plus"; iconSize: 15; tip: window.tr.tip_zoom_in; onClicked: window.zoomBy(1.15) }
                     IconButton {
                         iconName: "sliders"

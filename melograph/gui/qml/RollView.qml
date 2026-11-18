@@ -40,13 +40,30 @@ Item {
 
     WheelHandler {
         acceptedModifiers: Qt.ControlModifier
-        onWheel: (event) => rollView.zoomBy(event.angleDelta.y > 0 ? 1.15 : 1 / 1.15)
+        onWheel: (event) => rollView.zoomBy(Math.pow(1.15, event.angleDelta.y / 120))
     }
     WheelHandler {
-        acceptedModifiers: Qt.NoModifier
+        acceptedModifiers: Qt.NoModifier | Qt.ShiftModifier
         onWheel: (event) => {
-            const delta = (event.angleDelta.x !== 0 ? event.angleDelta.x : event.angleDelta.y) / 120
-            roll.viewStart = Math.max(0, Math.min(rollView.total - roll.viewSpan * 0.5, roll.viewStart - delta * roll.viewSpan * 0.08))
+            // a notch moves a sixth of the view; a touchpad moves twice as far as the fingers
+            let seconds
+            if (event.pixelDelta.x !== 0 || event.pixelDelta.y !== 0) {
+                const pixels = event.pixelDelta.x !== 0 ? event.pixelDelta.x : event.pixelDelta.y
+                seconds = pixels * 2 / Math.max(1, roll.width - 34) * roll.viewSpan
+            } else {
+                seconds = (event.angleDelta.x !== 0 ? event.angleDelta.x : event.angleDelta.y) / 120 * roll.viewSpan * 0.16
+            }
+            roll.viewStart = Math.max(0, Math.min(rollView.total - roll.viewSpan * 0.5, roll.viewStart - seconds))
+        }
+    }
+    PinchHandler {
+        target: null
+        property real applied: 1
+        onActiveChanged: if (active) applied = 1
+        onActiveScaleChanged: {
+            if (!active) return
+            rollView.zoomBy(activeScale / applied)
+            applied = activeScale
         }
     }
     DragHandler {

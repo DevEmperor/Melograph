@@ -167,6 +167,7 @@ TEXTS: dict[str, tuple[str, str]] = {  # key: (German, English)
     "tip_restore": ("Verkleinern", "Restore"),
     "tip_zoom_in": ("Vergrößern (Strg++)", "Zoom in (Ctrl++)"),
     "tip_zoom_out": ("Verkleinern (Strg+−)", "Zoom out (Ctrl+−)"),
+    "tip_zoom_fit": ("Ganze Seiten zeigen (Strg+0)", "Show whole pages (Ctrl+0)"),
     "tip_home": ("Zur Startseite", "Back to the start"),
     "menu_open": ("Aufnahme öffnen …", "Open recording …"),
     "menu_record": ("Neue Aufnahme …", "New recording …"),

@@ -11,6 +11,25 @@ APP_ID = "net.devemperor.Melograph"
 HERE = Path(__file__).parent
 
 
+def _platform_theme() -> list[str]:
+    """The desktop's own file dialogs: KDE's on Plasma, GTK's on GNOME.
+
+    PySide6 brings a Qt of its own, which cannot load the KDE integration installed
+    for the system's Qt; without help it falls back to file dialogs drawn in QML.
+    The XDG desktop portal is how Flatpaks and AppImages reach the real ones. A theme
+    the user chose that this Qt has (gtk3, say) is kept. Passed as an argument rather
+    than through the environment, so that MuseScore, started from here, keeps its own.
+    """
+    from PySide6.QtCore import QLibraryInfo
+
+    folder = Path(QLibraryInfo.path(QLibraryInfo.LibraryPath.PluginsPath)) / "platformthemes"
+    available = {p.name[4:].split(".")[0] for p in folder.glob("libq*.so")}  # libqgtk3.so → gtk3
+    chosen = os.environ.get("QT_QPA_PLATFORMTHEME", "")
+    if chosen in available or "xdgdesktopportal" not in available:
+        return []
+    return ["-platformtheme", "xdgdesktopportal"]
+
+
 def run(files: list[str] | None = None) -> int:
     from PySide6.QtCore import Property, QObject, Qt, QTimer, Signal
     from PySide6.QtGui import QGuiApplication, QIcon
@@ -22,7 +41,7 @@ def run(files: list[str] | None = None) -> int:
     from .items import PianoRoll, Waveform
 
     QQuickStyle.setStyle("Basic")
-    app = QGuiApplication(sys.argv[:1])
+    app = QGuiApplication(sys.argv[:1] + _platform_theme())
     app.setApplicationName("Melograph")
     app.setApplicationDisplayName("Melograph")
     app.setOrganizationDomain("devemperor.net")

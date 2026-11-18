@@ -206,3 +206,24 @@ def test_score_loads_in_verovio():
     toolkit = verovio.toolkit()
     assert toolkit.loadData(musicxml_text(result.score))
     assert toolkit.getPageCount() == 1
+
+
+def test_engraving_keeps_decimal_points_under_a_german_locale():
+    """Qt switches to the desktop's number format; Verovio's SVG must not get "0,72"."""
+    import locale
+    import re
+
+    from melograph.render import engrave
+
+    perf, beats, downs = play("c5:1 d5:1 e5:2", "c3:4")
+    xml = musicxml_text(run(perf, beats, downs).score)
+    try:
+        locale.setlocale(locale.LC_NUMERIC, "de_DE.UTF-8")
+    except locale.Error:
+        pytest.skip("no German locale on this system")
+    try:
+        page = engrave(xml, lambda quarters: quarters).pages[0]
+    finally:
+        locale.setlocale(locale.LC_NUMERIC, "C")
+    assert re.search(r"scale\(\d+,\d", page) is None
+    assert "scale(0.72, 0.72)" in page

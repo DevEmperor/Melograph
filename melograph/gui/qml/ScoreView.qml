@@ -2,49 +2,103 @@ import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Window
 
-// The engraved pages on the desk; the notes that sound light up, a click on a bar jumps there
+// The engraved pages side by side on the desk, as in MuseScore. The notes that sound light up,
+// a click on a bar jumps there. Zoom: Ctrl+wheel, pinch on the touchpad, Ctrl+plus/minus.
 Item {
     id: view
-    property real zoom: 1.0
+    property real zoom: 1.0  // 1 = a whole page fills the height of the view
+    readonly property real minZoom: 0.35
+    readonly property real maxZoom: 4.0
     readonly property var result: controller.result
     readonly property var pages: result.pages || []
     readonly property real aspect: result.size ? result.size[1] / result.size[0] : 1.414
-    readonly property real pageWidth: Math.min(Math.max(320, flick.width - 72), 1000) * zoom
+    readonly property real margin: 28
+    readonly property real gap: 32
+    readonly property real fitHeight: Math.max(240, flick.height - 2 * margin)
+    readonly property real pageHeight: fitHeight * zoom
+    readonly property real pageWidth: pageHeight / aspect
+    readonly property real wheelStep: 144  // pixels per notch of the mouse wheel (Qt's own is 72)
+    readonly property real touchpadSpeed: 2
+    // Pages are drawn at a few fixed sizes only, so that zooming does not redraw them at every
+    // step; in between they are scaled smoothly.
+    readonly property real rasterWidth: Math.min(4096, fitHeight / aspect * Screen.devicePixelRatio
+                                                 * Math.pow(Math.SQRT2, Math.ceil(Math.log(Math.max(zoom, 0.5)) / Math.log(Math.SQRT2))))
 
-    function zoomBy(factor) {
-        const centre = (flick.contentY + flick.height / 2) / Math.max(1, flick.contentHeight)
-        zoom = Math.max(0.4, Math.min(3.0, zoom * factor))
-        controller.setPreference("zoom", zoom)
-        flick.contentY = Math.max(0, centre * flick.contentHeight - flick.height / 2)
+    function clampX(x) { return Math.max(0, Math.min(flick.contentWidth - flick.width, x)) }
+    function clampY(y) { return Math.max(0, Math.min(flick.contentHeight - flick.height, y)) }
+
+    // Zoom so that the point (px, py) of the view stays where it is.
+    function zoomAt(factor, px, py) {
+        const before = zoom
+        const after = Math.max(minZoom, Math.min(maxZoom, before * factor))
+        if (Math.abs(after - before) < 0.0001) return
+        glideX.stop(); glideY.stop()
+        const cx = flick.contentX + px - pagesRow.x
+        const cy = flick.contentY + py - pagesRow.y
+        zoom = after
+        const ratio = after / before
+        flick.contentX = clampX(cx * ratio + pagesRow.x - px)
+        flick.contentY = clampY(cy * ratio + pagesRow.y - py)
+        saveZoom.restart()
     }
-    function fit() { zoom = 1.0; controller.setPreference("zoom", 1.0) }
-    Component.onCompleted: zoom = controller.preferences.zoom || 1.0
+    function zoomBy(factor) { zoomAt(factor, flick.width / 2, flick.height / 2) }
+    function fit() {
+        const centre = (flick.contentX + flick.width / 2 - pagesRow.x) / Math.max(1, pagesRow.width)
+        zoom = 1.0
+        flick.contentY = 0
+        flick.contentX = clampX(centre * pagesRow.width + pagesRow.x - flick.width / 2)
+        saveZoom.restart()
+    }
+    // Scroll by (dx, dy). Pages stand side by side: while a page fits the height, the wheel turns them sideways.
+    function scrollBy(dx, dy, smooth) {
+        if (flick.contentHeight <= flick.height + 1 && dx === 0) {
+            dx = dy
+            dy = 0
+        }
+        const fromX = glideX.running ? glideX.to : flick.contentX
+        const fromY = glideY.running ? glideY.to : flick.contentY
+        glide(clampX(fromX + dx), clampY(fromY + dy), smooth ? 160 : 0)
+    }
+    function glide(x, y, duration) {
+        glideX.stop(); glideY.stop()
+        if (duration <= 0) {
+            flick.contentX = x
+            flick.contentY = y
+            return
+        }
+        glideX.duration = glideY.duration = duration
+        glideX.from = flick.contentX; glideX.to = x
+        glideY.from = flick.contentY; glideY.to = y
+        glideX.start(); glideY.start()
+    }
+    Component.onCompleted: zoom = Math.max(minZoom, Math.min(maxZoom, controller.preferences.zoom || 1.0))
+
+    Timer { id: saveZoom; interval: 400; onTriggered: controller.setPreference("zoom", view.zoom) }
+    NumberAnimation { id: glideX; target: flick; property: "contentX"; easing.type: Easing.OutCubic }
+    NumberAnimation { id: glideY; target: flick; property: "contentY"; easing.type: Easing.OutCubic }
 
     Rectangle { anchors.fill: parent; color: Theme.desk }
 
     Flickable {
         id: flick
+        objectName: "scoreFlick"
         anchors.fill: parent
-        contentWidth: Math.max(width, view.pageWidth + 72)
-        contentHeight: pagesColumn.height + 64
+        contentWidth: Math.max(width, pagesRow.width + 2 * view.margin)
+        contentHeight: Math.max(height, pagesRow.height + 2 * view.margin)
         boundsBehavior: Flickable.StopAtBounds
-        flickDeceleration: 4000
-        maximumFlickVelocity: 4000
+        flickDeceleration: 3000
+        maximumFlickVelocity: 6000
         clip: true
-        ScrollBar.vertical: ScrollBar { }
-        ScrollBar.horizontal: ScrollBar { policy: flick.contentWidth > flick.width ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff }
+        ScrollBar.vertical: ScrollBar { policy: flick.contentHeight > flick.height + 1 ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff }
+        ScrollBar.horizontal: ScrollBar { policy: flick.contentWidth > flick.width + 1 ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff }
 
-        Behavior on contentY {
-            id: scrollAnimation
-            enabled: false
-            NumberAnimation { duration: Theme.animSlow; easing.type: Easing.InOutCubic }
-        }
-
-        Column {
-            id: pagesColumn
-            y: 32
+        // Laid out by hand rather than with a Row, so that the sizes are right at once when zooming.
+        Item {
+            id: pagesRow
             x: (flick.contentWidth - width) / 2
-            spacing: 28
+            y: (flick.contentHeight - height) / 2
+            width: view.pages.length * view.pageWidth + Math.max(0, view.pages.length - 1) * view.gap
+            height: view.pageHeight
             opacity: controller.busy ? 0.55 : 1
             Behavior on opacity { NumberAnimation { duration: Theme.anim } }
 
@@ -55,8 +109,12 @@ Item {
                     id: pageItem
                     required property int index
                     required property string modelData
+                    // on screen or close to it: only these get a sharp copy when zoomed in
+                    readonly property bool near: pagesRow.x + x + width > flick.contentX - flick.width
+                                                 && pagesRow.x + x < flick.contentX + 2 * flick.width
+                    x: index * (view.pageWidth + view.gap)
                     width: view.pageWidth
-                    height: view.pageWidth * view.aspect
+                    height: view.pageHeight
 
                     // a soft shadow under the paper
                     Rectangle {
@@ -86,10 +144,24 @@ Item {
                         color: Qt.rgba(0.898, 0.282, 0.302, 0.07)
                         border.color: Qt.rgba(0.898, 0.282, 0.302, 0.22)
                     }
+                    // The page at the size of a whole page on screen; it stays visible underneath
+                    // while a sharper copy for the current zoom is drawn.
                     Image {
                         anchors.fill: parent
+                        visible: !sharp.visible  // under the sharp copy its blur would thicken every line
                         source: pageItem.modelData
-                        sourceSize.width: Math.round(pageItem.width * Screen.devicePixelRatio)
+                        sourceSize.width: Math.round(view.fitHeight / view.aspect * Screen.devicePixelRatio)
+                        asynchronous: true
+                        cache: false
+                        smooth: true
+                        mipmap: true
+                    }
+                    Image {
+                        id: sharp
+                        anchors.fill: parent
+                        visible: view.zoom > 1.05 && pageItem.near && status === Image.Ready
+                        source: view.zoom > 1.05 && pageItem.near ? pageItem.modelData : ""
+                        sourceSize.width: Math.round(view.rasterWidth)
                         asynchronous: true
                         cache: false
                         smooth: true
@@ -118,25 +190,56 @@ Item {
             }
         }
 
+
+        // The wheel: Ctrl zooms where the pointer is, Shift scrolls sideways, a touchpad scrolls
+        // in both directions. Twice as far per step as Qt would scroll on its own.
         WheelHandler {
-            acceptedModifiers: Qt.ControlModifier
-            onWheel: (event) => view.zoomBy(event.angleDelta.y > 0 ? 1.1 : 1 / 1.1)
+            parent: flick
+            acceptedModifiers: Qt.KeyboardModifierMask
+            onWheel: (event) => {
+                const touchpad = event.pixelDelta.x !== 0 || event.pixelDelta.y !== 0
+                if (event.modifiers & Qt.ControlModifier) {
+                    const steps = touchpad ? event.pixelDelta.y / 60 : event.angleDelta.y / 120
+                    view.zoomAt(Math.pow(1.12, steps), event.x, event.y)
+                    return
+                }
+                let dx = touchpad ? -event.pixelDelta.x * view.touchpadSpeed : -event.angleDelta.x / 120 * view.wheelStep
+                let dy = touchpad ? -event.pixelDelta.y * view.touchpadSpeed : -event.angleDelta.y / 120 * view.wheelStep
+                if ((event.modifiers & Qt.ShiftModifier) && dx === 0) {
+                    dx = dy
+                    dy = 0
+                }
+                view.scrollBy(dx, dy, !touchpad)
+            }
+        }
+        // two fingers apart and together on a touchpad or a touch screen
+        PinchHandler {
+            parent: flick
+            target: null
+            property real startZoom: 1
+            property real applied: 1
+            onActiveChanged: if (active) { startZoom = view.zoom; applied = 1 }
+            onActiveScaleChanged: {
+                if (!active) return
+                view.zoomAt(activeScale / applied, centroid.position.x, centroid.position.y)
+                applied = activeScale
+            }
         }
     }
 
     // keep the bar that is playing in sight
     Connections {
         target: controller
-        function onScrollTo(page, fraction) {
+        function onScrollTo(page, fx, fy) {
             const item = pageRepeater.itemAt(page)
-            if (!item || flick.moving || flick.dragging) return
-            const y = pagesColumn.y + item.y + fraction * item.height
-            const top = flick.contentY, bottom = flick.contentY + flick.height
-            if (y < top + 40 || y > bottom - flick.height * 0.4) {
-                scrollAnimation.enabled = true
-                flick.contentY = Math.max(0, Math.min(flick.contentHeight - flick.height, y - flick.height * 0.25))
-                scrollAnimation.enabled = false
-            }
+            if (!item || flick.dragging || flick.flicking) return
+            const x = pagesRow.x + item.x + fx * item.width
+            const y = pagesRow.y + item.y + fy * item.height
+            let tx = flick.contentX
+            let ty = flick.contentY
+            if (x < tx + 60 || x > tx + flick.width * 0.78) tx = x - flick.width * 0.18
+            if (flick.contentHeight > flick.height + 1 && (y < ty + 40 || y > ty + flick.height * 0.6)) ty = y - flick.height * 0.25
+            if (tx !== flick.contentX || ty !== flick.contentY) view.glide(view.clampX(tx), view.clampY(ty), Theme.animSlow)
         }
     }
 

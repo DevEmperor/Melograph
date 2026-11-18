@@ -83,8 +83,10 @@ pulse and the bars, and writes the music the way an engraver would:
 
 And around that:
 
-- A **live score view**: the notes that sound light up while the recording
-  plays; click a bar to jump there.
+- A **live score view** with the pages side by side, as in MuseScore: the notes
+  that sound light up while the recording plays, the view turns the pages along,
+  and a click on a bar jumps there. Zoom with Ctrl + mouse wheel, a pinch on the
+  touchpad, or the percentage in the header.
 - Listen to **the recording, the written notes, or both at once** in sync – the
   quickest way to hear where the transcription is wrong.
 - A **piano roll** of what was heard.
@@ -121,8 +123,9 @@ opens instantly.
 | Space | play / pause | Ctrl+E | export … |
 | ← / → | five seconds back / on | Ctrl+S | save MusicXML |
 | Home | to the beginning | Ctrl+M | open in MuseScore |
-| Ctrl + mouse wheel, Ctrl+± | zoom | F9 | show / hide the settings |
-| Ctrl+0 | fit the page | Ctrl+, | preferences |
+| Mouse wheel | turn the pages | F9 | show / hide the settings |
+| Ctrl + wheel, pinch, Ctrl+± | zoom | Ctrl+, | preferences |
+| Ctrl+0 | whole pages again | Ctrl+O, Ctrl+R | open, record |
 
 **Command line:** with files, the AppImage (and `melograph.sh`) works without a window.
 

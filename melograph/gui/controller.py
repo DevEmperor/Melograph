@@ -50,7 +50,7 @@ class Controller(QObject):
     preferencesChanged = Signal()
     menuChanged = Signal()
     message = Signal(str)
-    scrollTo = Signal(int, float)  # page, vertical fraction – asks the view to show this place
+    scrollTo = Signal(int, float, float)  # page, x and y as fractions of it – asks the view to show this place
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -528,10 +528,10 @@ class Controller(QObject):
             self._highlight, self._measure_rect = sounding, measure
             self.highlightChanged.emit()
         if measure and self.player.playing and self._prefs.get("follow", True):
-            place = (measure[0], round(measure[2], 3))
+            place = (measure[0], round(measure[1], 3), round(measure[2], 3))
             if place != self._last_scroll:
                 self._last_scroll = place
-                self.scrollTo.emit(int(measure[0]), float(measure[2]))
+                self.scrollTo.emit(int(measure[0]), float(measure[1] + measure[3] / 2), float(measure[2]))
 
     @Slot(int, float, float)
     def seekAt(self, page: int, x: float, y: float) -> None:

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 import json
+import locale
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -20,6 +21,16 @@ MUSIC_FONTS = ("Leland", "Leipzig", "Bravura", "Gootville", "Petaluma")
 
 PAGE_WIDTH = 2100  # A4 in tenths of a millimetre
 PAGE_HEIGHT = 2970
+
+
+def c_numbers() -> None:
+    """Numbers with a decimal point for Verovio, whatever the language of the desktop.
+
+    Verovio writes its SVG and MEI with printf. Qt switches the process to the
+    desktop's locale when it starts, and with a German LC_NUMERIC "scale(0.72)"
+    became "scale(0,72)": every symbol was then drawn at the wrong size.
+    """
+    locale.setlocale(locale.LC_NUMERIC, "C")
 
 
 def music_font(name: str = FONT) -> bytes:
@@ -161,6 +172,7 @@ def engrave(musicxml: str, seconds_of_quarter, scale: int = 40, landscape: bool 
     """Lay out the score. `seconds_of_quarter(q)` maps a score position in quarters to the recording."""
     import verovio
 
+    c_numbers()
     verovio.enableLog(verovio.LOG_ERROR)  # its notes about spanners it lays out differently are no use here
     toolkit = verovio.toolkit()
     width, height = (PAGE_HEIGHT, PAGE_WIDTH) if landscape else (PAGE_WIDTH, PAGE_HEIGHT)

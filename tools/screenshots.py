@@ -6,10 +6,12 @@ with silent sound, opens a piece, walks through the views and saves PNGs.
     .venv/bin/python tools/screenshots.py recording.mp3 [folder] [--light] [--de]
         [--app dist/Melograph-…-x86_64.AppImage]   walk through a built AppImage instead
         [--fresh]                                  transcribe again instead of reusing the cache
+        [--zoom 1.3]                               start the score view at this zoom
 """
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -109,6 +111,7 @@ def main() -> int:
     theme = "light" if "--light" in sys.argv else "dark"
     language = "de" if "--de" in sys.argv else "en"
     app = next((sys.argv[i + 1] for i, a in enumerate(sys.argv[:-1]) if a == "--app"), None)
+    zoom = next((float(sys.argv[i + 1]) for i, a in enumerate(sys.argv[:-1]) if a == "--zoom"), None)
     out.mkdir(parents=True, exist_ok=True)
     root = Path(__file__).resolve().parents[1]
     with tempfile.TemporaryDirectory(prefix="melograph-shots-") as temp:
@@ -116,6 +119,9 @@ def main() -> int:
         for name in ("config", "data", "cache", "runtime", "recordings", "torch"):
             (temp / name).mkdir()
         os.chmod(temp / "runtime", 0o700)
+        if zoom:
+            (temp / "config" / "melograph").mkdir()
+            (temp / "config" / "melograph" / "settings.json").write_text(json.dumps({"zoom": zoom}))
         # Reuse what was already heard, so the pictures do not wait for a transcription.
         real_cache = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "melograph"
         if real_cache.exists() and "--fresh" not in sys.argv:

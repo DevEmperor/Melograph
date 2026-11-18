@@ -44,9 +44,10 @@ class _Work:
         if self.app is None:
             from PySide6.QtGui import QGuiApplication
 
-            from ..render import register_fonts
+            from ..render import c_numbers, register_fonts
 
             self.app = QGuiApplication(["melograph-engine"])
+            c_numbers()  # Qt has just switched to the desktop's number format; Verovio needs "0.5"
             register_fonts()
         return self.app
 
