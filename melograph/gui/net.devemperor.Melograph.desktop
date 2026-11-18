@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=Melograph
+GenericName=Piano Transcription
+GenericName[de]=Klavier-Transkription
+Comment=Turn piano recordings into sheet music
+Comment[de]=Klavieraufnahmen in Noten verwandeln
+Exec=melograph --gui %F
+Icon=net.devemperor.Melograph
+Terminal=false
+Categories=AudioVideo;Audio;Music;
+Keywords=music;notes;sheet;score;piano;transcription;midi;musicxml;musescore;Noten;Klavier;
+MimeType=audio/mpeg;audio/x-wav;audio/wav;audio/flac;audio/x-flac;audio/ogg;audio/mp4;audio/x-m4a;audio/aac;audio/midi;audio/x-midi;video/mp4;video/webm;
+StartupWMClass=net.devemperor.Melograph

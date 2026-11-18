@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>net.devemperor.Melograph</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Melograph</name>
+  <summary>Turn piano recordings into sheet music</summary>
+  <summary xml:lang="de">Klavieraufnahmen in Noten verwandeln</summary>
+  <developer id="net.devemperor">
+    <name>DevEmperor</name>
+  </developer>
+  <description>
+    <p>
+      Melograph listens to a piano recording and writes it down as engraved sheet music:
+      both hands on a grand staff, with metre, key, pedal, slurs, dynamics and ornaments.
+      The result opens in MuseScore or is exported as MusicXML, PDF, MIDI or MEI.
+    </p>
+    <ul>
+      <li>Note recognition with Transkun, beats and bars with Beat This!</li>
+      <li>Hand split, voices, triplets, swing, grace notes, trills and rolled chords</li>
+      <li>Pedal marks, phrase slurs, hairpins, accents, fermatas, 8va lines and clef changes</li>
+      <li>Live score preview that follows the recording, side by side with a piano roll</li>
+      <li>Everything runs on your own computer, no account and no upload</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">net.devemperor.Melograph.desktop</launchable>
+  <url type="homepage">https://github.com/DevEmperor/Melograph</url>
+  <url type="bugtracker">https://github.com/DevEmperor/Melograph/issues</url>
+  <url type="vcs-browser">https://github.com/DevEmperor/Melograph</url>
+  <screenshots>
+    <screenshot type="default">
+      <caption>The score of a recording, following the playback</caption>
+      <image>https://raw.githubusercontent.com/DevEmperor/Melograph/main/docs/screenshots/score.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Start page</caption>
+      <image>https://raw.githubusercontent.com/DevEmperor/Melograph/main/docs/screenshots/welcome.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Piano roll of what was heard</caption>
+      <image>https://raw.githubusercontent.com/DevEmperor/Melograph/main/docs/screenshots/piano-roll.png</image>
+    </screenshot>
+  </screenshots>
+  <categories>
+    <category>AudioVideo</category>
+    <category>Audio</category>
+    <category>Music</category>
+  </categories>
+  <keywords>
+    <keyword>piano</keyword>
+    <keyword>transcription</keyword>
+    <keyword>sheet music</keyword>
+    <keyword>MusicXML</keyword>
+    <keyword>MuseScore</keyword>
+  </keywords>
+  <content_rating type="oars-1.1"/>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+  <requires>
+    <display_length compare="ge">960</display_length>
+  </requires>
+  <releases>
+    <release version="0.1.0" date="2026-11-18">
+      <description>
+        <p>First release.</p>
+      </description>
+    </release>
+  </releases>
+</component>

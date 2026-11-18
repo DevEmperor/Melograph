@@ -1,0 +1,21 @@
+singleton Theme 1.0 Theme.qml
+Icon 1.0 Icon.qml
+IconButton 1.0 IconButton.qml
+TextButton 1.0 TextButton.qml
+Toggle 1.0 Toggle.qml
+Segments 1.0 Segments.qml
+PlayButton 1.0 PlayButton.qml
+Choice 1.0 Choice.qml
+Field 1.0 Field.qml
+Spinner 1.0 Spinner.qml
+OptionRow 1.0 OptionRow.qml
+Section 1.0 Section.qml
+Welcome 1.0 Welcome.qml
+Working 1.0 Working.qml
+ScoreView 1.0 ScoreView.qml
+RollView 1.0 RollView.qml
+Transport 1.0 Transport.qml
+Sidebar 1.0 Sidebar.qml
+ExportMenu 1.0 ExportMenu.qml
+Preferences 1.0 Preferences.qml
+RecordDialog 1.0 RecordDialog.qml

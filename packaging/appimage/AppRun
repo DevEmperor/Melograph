@@ -1,0 +1,10 @@
+#!/bin/sh
+# Starts Melograph from inside the AppImage: the window without arguments,
+# the command line with files (`--gui` forces the window, `--help` lists the options).
+here="$(dirname "$(readlink -f "$0")")"
+
+# The beat model travels with the AppImage, so nothing is downloaded on the first start.
+export MELOGRAPH_BEAT_MODEL="$here/usr/share/melograph/beat_this-final0.ckpt"
+
+# -I: the Python inside is its own; settings and packages meant for the system's Python stay out.
+exec "$here/usr/python/bin/python3" -I -m melograph "$@"
