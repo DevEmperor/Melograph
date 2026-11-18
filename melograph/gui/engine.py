@@ -28,8 +28,7 @@ class _Work:
         self.key = None
         self.source = None
         self.performance = None
-        self.beats = None
-        self.downbeats = None
+        self.tracked = None  # what the beat tracker heard
         self.result = None
         self.xml = ""
         self.engraving = None
@@ -62,17 +61,30 @@ class _Work:
         remembered = None if job.get("fresh") else cache.load(key)
         peaks = cache.peaks(key)
         device = "cpu"
+        is_midi = source.suffix.lower() in MIDI_SUFFIXES
         if remembered is not None:
-            performance, beats, downbeats = remembered
+            performance, tracked = remembered
             self.reply(job, "stage", stage="cache")
-        elif source.suffix.lower() in MIDI_SUFFIXES:
+            if tracked is None and not is_midi:
+                # Remembered by an older version, which kept a list of beats only: the notes
+                # are still good, the pulse is heard again (a few seconds).
+                from ..beats import beat_model_ready, track_audio
+                from ..transcribe import pick_device
+
+                self.reply(job, "stage", stage="beats", download=not beat_model_ready())
+                try:
+                    tracked = track_audio(load_audio(source), 44100, pick_device(job.get("device", "auto")))
+                    cache.save_tracked(key, tracked)
+                except Exception:
+                    tracked = None
+        elif is_midi:
             from ..transcribe import read_midi
 
             self.reply(job, "stage", stage="load")
             performance = read_midi(source)
-            beats = downbeats = None
+            tracked = None
             peaks = None
-            cache.save(key, source, performance, None, None)
+            cache.save(key, source, performance, None)
         else:
             from ..beats import beat_model_ready, track_audio
             from ..transcribe import pick_device, transcribe
@@ -92,21 +104,21 @@ class _Work:
                 performance = transcribe(audio, device, lambda done, total: self.reply(job, "progress", done=done, total=total))
             self.reply(job, "stage", stage="beats", download=not beat_model_ready())
             try:
-                beats, downbeats = track_audio(audio, 44100, device)
+                tracked = track_audio(audio, 44100, device)
             except Exception:
-                beats = downbeats = None
-            cache.save(key, source, performance, beats, downbeats, peaks)
+                tracked = None
+            cache.save(key, source, performance, tracked, peaks)
             del audio
         if not performance.notes:
             self.reply(job, "error", message="no_notes")
             return
         self.key, self.source = key, source
-        self.performance, self.beats, self.downbeats = performance, beats, downbeats
+        self.performance, self.tracked = performance, tracked
         self.result = None
         self.reply(
             job, "heard", key=key, cached=remembered is not None, device=device,
             duration=performance.duration, notes=len(performance.notes), pedals=len(performance.pedals),
-            peaks=peaks.tolist() if peaks is not None else [], beatsFromAudio=beats is not None,
+            peaks=peaks.tolist() if peaks is not None else [], beatsFromAudio=tracked is not None,
             settings=cache.settings(key),
         )
 
@@ -124,7 +136,7 @@ class _Work:
         values = job.get("options", {})
         cache.store_settings(self.key, values)
         options = to_options(values, self.source)
-        result = analyse(self.performance, self.beats, self.downbeats, options)
+        result = analyse(self.performance, None, None, options, self.tracked)
         xml = musicxml_text(result.score)
         seconds = result.layout.seconds_of_quarter(result.grid)
         engraving = engrave(xml, seconds, scale=int(job.get("scale", 40)))
@@ -265,6 +277,9 @@ def _summary(result) -> dict:
         "pickup": pickup, "swing": result.marks.swing, "first": float(first),
         "slurs": len(result.marks.slurs), "pedals": len(result.marks.pedals),
         "beatsPerBar": result.grid.beats_per_bar,
+        # how often key signature, time signature and tempo change after the beginning
+        "keyChanges": result.key_changes, "meterChanges": result.meter_changes,
+        "tempoChanges": sum(1 for m in result.marks.tempos if m.bpm is not None) - 1,
     }
 
 

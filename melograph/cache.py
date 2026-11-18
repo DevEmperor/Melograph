@@ -16,9 +16,10 @@ from pathlib import Path
 
 import numpy as np
 
+from .beats import Tracked
 from .model import Performance
 
-FORMAT = 1  # bump when what is stored changes
+FORMAT = 1  # bump when a stored performance can no longer be read
 
 
 def root() -> Path:
@@ -38,7 +39,9 @@ def folder(key: str) -> Path:
     return root() / key
 
 
-def load(key: str) -> tuple[Performance, np.ndarray | None, np.ndarray | None] | None:
+def load(key: str) -> tuple[Performance, Tracked | None] | None:
+    """The performance and what the beat tracker heard (None for MIDI input, and for
+    recordings remembered by an older version: their beats are then heard again)."""
     from .transcribe import read_midi
 
     here = folder(key)
@@ -49,33 +52,41 @@ def load(key: str) -> tuple[Performance, np.ndarray | None, np.ndarray | None] |
         performance = read_midi(midi)
         info = json.loads((here / "info.json").read_text())
         performance.duration = max(performance.duration, float(info.get("duration", 0)))
-        beats = downbeats = None
-        if (here / "beats.npz").exists():
-            data = np.load(here / "beats.npz")
-            beats, downbeats = data["beats"], data["downbeats"]
-            if len(beats) == 0:
-                beats = downbeats = None
+        tracked = None
+        if (here / "pulse.npz").exists():
+            data = np.load(here / "pulse.npz")
+            if len(data["beat"]):
+                tracked = Tracked(data["beat"].astype(np.float32), data["downbeat"].astype(np.float32))
         os.utime(here, None)  # recently used
-        return performance, beats, downbeats
+        return performance, tracked
     except (OSError, ValueError, KeyError):
         return None
 
 
-def save(key: str, source: Path, performance: Performance, beats, downbeats, peaks=None) -> None:
+def save(key: str, source: Path, performance: Performance, tracked: Tracked | None, peaks=None) -> None:
     from .transcribe import write_midi
 
     here = folder(key)
     here.mkdir(parents=True, exist_ok=True)
     write_midi(performance, here / "performance.mid")
-    np.savez(
-        here / "beats.npz",
-        beats=np.asarray(beats if beats is not None else [], dtype=float),
-        downbeats=np.asarray(downbeats if downbeats is not None else [], dtype=float),
-    )
+    save_tracked(key, tracked)
+    (here / "beats.npz").unlink(missing_ok=True)  # the beat list of older versions
     if peaks is not None:
         np.save(here / "peaks.npy", np.asarray(peaks, dtype=np.float32))
     info = {"source": str(source), "duration": performance.duration, "saved": time.time()}
     (here / "info.json").write_text(json.dumps(info))
+
+
+def save_tracked(key: str, tracked: Tracked | None) -> None:
+    """Keep what the beat tracker heard (half precision: 60 kB for five minutes)."""
+    here = folder(key)
+    here.mkdir(parents=True, exist_ok=True)
+    empty = np.zeros(0, dtype=np.float16)
+    np.savez(
+        here / "pulse.npz",
+        beat=tracked.beat.astype(np.float16) if tracked is not None else empty,
+        downbeat=tracked.downbeat.astype(np.float16) if tracked is not None else empty,
+    )
 
 
 def peaks(key: str) -> np.ndarray | None:
@@ -83,17 +94,24 @@ def peaks(key: str) -> np.ndarray | None:
     return np.load(file) if file.exists() else None
 
 
+SETTINGS = 2  # version of the per-piece settings
+
+
 def settings(key: str) -> dict:
     try:
-        return json.loads((folder(key) / "settings.json").read_text())
+        values = json.loads((folder(key) / "settings.json").read_text())
     except (OSError, ValueError):
         return {}
+    if values.get("format") != SETTINGS and values.get("pedal") == "lines":
+        # Stored before the pedal could be left to Melograph, when lines were simply the default.
+        values["pedal"] = "auto"
+    return values
 
 
 def store_settings(key: str, values: dict) -> None:
     here = folder(key)
     here.mkdir(parents=True, exist_ok=True)
-    (here / "settings.json").write_text(json.dumps(values, indent=1))
+    (here / "settings.json").write_text(json.dumps(dict(values, format=SETTINGS), indent=1))
 
 
 def size() -> int:

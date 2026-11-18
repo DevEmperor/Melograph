@@ -7,6 +7,7 @@ from fractions import Fraction
 
 import numpy as np
 
+from melograph.beats import Tracked
 from melograph.model import Note, Pedal, Performance
 from melograph.transcribe import finish
 
@@ -89,3 +90,21 @@ def play(
         float(beats[-1]),
     )
     return finish(performance), beats, downbeats
+
+
+def heard(beats, downbeats, length: float, weak=()) -> Tracked:
+    """What a beat tracker would say about a recording with these beats: fifty probabilities a second.
+
+    `weak` beats are only faintly there (the tracker counting on a slower level for a while).
+    """
+    frames = int(length * 50) + 50
+    beat, downbeat = np.zeros(frames, dtype=np.float32), np.zeros(frames, dtype=np.float32)
+    faint = {round(float(t), 3) for t in weak}
+    for curve, times in ((beat, beats), (downbeat, downbeats)):
+        for t in times:
+            height = 0.25 if curve is beat and round(float(t), 3) in faint else 0.95
+            centre = float(t) * 50
+            for i in range(int(centre) - 2, int(centre) + 4):
+                if 0 <= i < frames:
+                    curve[i] = max(curve[i], height * np.exp(-0.5 * (i - centre) ** 2))
+    return Tracked(beat, downbeat)

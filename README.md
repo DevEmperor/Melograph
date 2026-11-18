@@ -65,19 +65,24 @@ pulse and the bars, and writes the music the way an engraver would:
   sixteenths, triplets, quarter-note triplets), chosen for the whole piece
   together, so one late note does not turn a bar into a triplet. Ties and rests
   follow engraving rules; simple syncopations and dotted figures stay one note.
-- **Time signature and pickup**, including compound meters (6/8, 9/8, 12/8) and
-  the harmonic rhythm as a tie-breaker between 2/4 and 4/4.
+- **Time signature and pickup**, including compound meters (6/8, 9/8, 12/8) –
+  and **changes of metre**: a section in 12/8 inside a piece in 4/4, a single
+  bar of 3/4.
 - **Key signature** and spelling (G♯ or A♭?) from the line of fifths and where a
-  note resolves.
-- **Pedal** marks where the sustain pedal went down and was changed.
-- **Slurs** over passages that were really played legato (read from the key
-  releases, even under the pedal).
+  note resolves – with a **new signature where the music modulates**, announced
+  by a double bar line.
+- **Tempo** for every section: a new metronome mark where the music settles on
+  another tempo, *rit.* / *a tempo*, and a fermata where it pauses. The pulse
+  stays on one counting level throughout (♩ = 80 does not turn into ♪ = 160 in
+  the fast part).
+- **Pedal** marks where the sustain pedal went down and was changed – or just
+  *con pedale* when it is down all the way through, as printed music has it.
+- **Slurs** over passages that were played legato with the fingers.
 - **Dynamics and hairpins** from how hard the keys were struck; **accents** on
   the few notes that stand out.
-- **Staccato**, **grace notes**, **trills**, **rolled chords**, **fermatas**.
+- **Staccato**, **grace notes**, **trills**, **rolled chords**.
 - **8va / 8vb lines** for passages far off the staff, **clef changes** when a hand
   moves into the other register.
-- **Tempo** mark, new tempos for longer sections, *rit.* / *a tempo*.
 - **Swing** detected and written as straight eighths with a "Swing" mark.
 - **Chord symbols** above the staff, if you like (off by default).
 
@@ -144,22 +149,32 @@ opens instantly.
    release, loudness and pedal of every note. Overtones that were heard as notes
    of their own are removed again.
 2. **Pulse and bars** – [Beat This!](https://github.com/CPJKU/beat_this)
-   (Foscarin, Schlüter & Widmer, ISMIR 2024) tracks beats and downbeats; the beats
-   are pulled onto the chords that were really played, the counting level is
-   corrected when the tracker hears half or double time, and the harmonic rhythm
-   settles between two- and four-beat bars.
+   (Foscarin, Schlüter & Widmer, ISMIR 2024) says fifty times a second how
+   likely a beat and a downbeat are. Melograph reads these probabilities
+   together with the notes instead of taking a finished list of beats: first a
+   tempo curve that follows real changes of tempo but stays on one counting
+   level, then the beats along it, then the bar lines one bar at a time – so
+   that a change of metre or a fermata does not push everything after it off
+   the beat. A pause is one long beat, and bars that a ritardando has pulled
+   out of shape are counted again (`melograph/beats.py`).
 3. **Rhythm** – a dynamic programme picks one subdivision per beat for the whole
    piece; grace notes, trills and rolled chords are recognised first, so they do
-   not end up as clouds of 32nd notes.
+   not end up as clouds of 32nd notes. Stretches whose beats fall into three
+   become compound time.
 4. **Hands** – every chord is cut at some pitch; a beam search over the piece
-   decides where, by what two real hands can do: stretch, travel, time to travel,
-   keys still held, running figures staying in one hand, hands not crossing.
+   decides where, by what two real hands do: stretch, travel, time to travel,
+   keys still held, hands not crossing – and habit: a hand plays again the keys
+   it has just played and goes on with the figure it is running, which keeps
+   an accompaniment in the left hand when it climbs into the tune's register.
 5. **Lengths and voices** – a note lasts until the next one in the same hand; a
-   rest stands only where the sound really stops; a second voice only where a
-   key is held on purpose.
-6. **Markings** – pedal, slurs, dynamics, hairpins, accents, fermatas, tempo,
+   rest stands where the sound really stops or a detached note leaves a gap; a
+   tie over a beat or a bar line only where the key stays down; a second voice
+   only where holding keys is the texture of the music.
+6. **Keys** – the signature that leaves the fewest foreign notes and sounds
+   like the music, for every stretch of bars (`melograph/spelling.py`).
+7. **Markings** – pedal, slurs, dynamics, hairpins, accents, fermatas, tempo,
    octave lines, clefs, chord symbols (`melograph/marks.py`).
-7. **Engraving** – bars, ties and tuplets by the rules of the trade, written as
+8. **Engraving** – bars, ties and tuplets by the rules of the trade, written as
    MusicXML through [music21](https://github.com/cuthbertLab/music21); the
    preview and the PDF are engraved by [Verovio](https://www.verovio.org).
 
@@ -167,9 +182,12 @@ opens instantly.
 
 - Best with **solo piano** in a decent recording. Voices or other instruments
   turn into wrong notes.
-- **One time signature** per piece; changes of metre are not detected.
-- Very free **rubato** and music without a felt pulse give restless rhythms –
-  `--grid 8` or `--triplets off` help.
+- Changes of metre and key are found where the music makes them clear. In very
+  free **rubato** a bar can come out a beat short or long, and music without a
+  felt pulse gives restless rhythms – `--grid 8` or `--triplets off` help, and
+  a time signature or key you set yourself holds for the whole piece.
+- A rhythm between two readings is written as it was played: a lazy
+  quarter-note triplet may come out as dotted eighths.
 - The hand split follows what is comfortable to play, not always what a
   composer wrote; dense **broken-chord textures** sometimes give a note to the
   wrong hand. Fingerings, repeats and lyrics are not written.

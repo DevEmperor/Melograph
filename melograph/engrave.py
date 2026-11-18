@@ -10,6 +10,7 @@ a beat, and triplets are bracketed beat by beat.
 from __future__ import annotations
 
 import math
+from bisect import bisect_right
 from dataclasses import dataclass, field
 from fractions import Fraction
 
@@ -52,27 +53,38 @@ class Bar:
 
 @dataclass
 class Layout:
-    meter: Meter
     bars: list[Bar]
     origin: Fraction  # beat at which the first bar starts
     edges: list[Fraction] = field(default_factory=list)  # bar lines in quarter lengths from the origin
+    starts: list[Fraction] = field(default_factory=list)  # the same bar lines in beats
+    meters: list[Meter] = field(default_factory=list)  # the metre of every bar
+
+    @property
+    def meter(self) -> Meter:
+        """The metre the piece begins in (after a pickup)."""
+        return self.meters[1] if len(self.meters) > 1 and self.bars[0].number == 0 else self.meters[0]
+
+    def quarters(self, pos) -> Fraction:
+        """A position in beats as quarter lengths from the first bar line."""
+        index = max(0, min(bisect_right(self.starts, pos) - 1, len(self.meters) - 1))
+        return self.edges[index] + (pos - self.starts[index]) * self.meters[index].beat_ql
 
     def locate(self, pos: Fraction) -> tuple[int, Fraction]:
         """Bar index and offset in it (quarter lengths) of a position in beats."""
-        t = (pos - self.origin) * self.meter.beat_ql
-        index = 0
-        while index + 1 < len(self.edges) - 1 and self.edges[index + 1] <= t:
-            index += 1
-        index = max(0, min(index, len(self.bars) - 1))
-        return index, max(F(0), min(t - self.edges[index], self.bars[index].length))
+        index = max(0, min(bisect_right(self.starts, pos) - 1, len(self.meters) - 1))
+        offset = (pos - self.starts[index]) * self.meters[index].beat_ql
+        return index, max(F(0), min(offset, self.edges[index + 1] - self.edges[index]))
 
     def bar_of(self, pos: Fraction) -> int:
         return self.locate(pos)[0]
 
     def seconds_of_quarter(self, grid: Grid):
         """Maps a score position in quarters (from the first bar line) to seconds in the recording."""
+        edges = [float(e) for e in self.edges]
+
         def convert(q: float) -> float:
-            return grid.time_of(float(self.origin) + q / float(self.meter.beat_ql))
+            index = max(0, min(bisect_right(edges, q) - 1, len(self.meters) - 1))
+            return grid.time_of(float(self.starts[index]) + (q - edges[index]) / float(self.meters[index].beat_ql))
         return convert
 
 
@@ -304,65 +316,65 @@ def _voice_atoms(
     return atoms
 
 
-def engrave(notes: list[Note], grid: Grid, meter: Meter) -> Layout:
-    """Lay the piece out in bars, staves and voices."""
-    beat, per_bar = meter.beat_ql, meter.beats_per_bar
-    bar = meter.bar_ql
-    metric = Metric(meter)
-    span = beat if beat in (F(1, 2), F(1), F(2)) else None
-
+def engrave(notes: list[Note], grid: Grid) -> Layout:
+    """Lay the piece out in bars, staves and voices. Every bar has its own metre (`grid.meters`)."""
     # Where does bar one start, and is there a pickup?
     first = min(n.pos for n in notes)
-    bar_start = grid.phase + per_bar * math.floor((first - grid.phase) / per_bar)
+    opening = grid.bar_at(first)
+    bar_start, per_bar = grid.bar_start(opening), grid.bar_length(opening)
     into = first - bar_start
-    pickup = F(0)
+    pickup = False
     origin = F(bar_start)
     if into > 0 and into * 2 >= per_bar:
-        origin = first if _binary(first * beat) else F(math.floor(first))
-        pickup = (bar_start + per_bar - origin) * beat
+        origin = first if _binary(first * grid.meters[opening].beat_ql) else F(math.floor(first))
+        pickup = True
+
+    # Bar lines from the first note to the end of the last one, in beats and in quarter lengths.
+    last = max(n.pos + n.dur for n in notes)
+    closing = grid.bar_at(max(first, last - F(1, 64)))
+    starts = [origin] + [F(grid.bar_start(index)) for index in range(opening + 1, closing + 2)]
+    meters = [grid.meters[index] for index in range(opening, closing + 1)]
+    edges = [F(0)]
+    for index, meter in enumerate(meters):
+        edges.append(edges[-1] + (starts[index + 1] - starts[index]) * meter.beat_ql)
+    count = len(meters)
+    layout = Layout([], origin, edges, starts, meters)
 
     # Events: (staff, stream) → [(start, end, notes)] in quarter lengths from the origin.
     grouped: dict[tuple, list[Note]] = {}
     for n in notes:
         grouped.setdefault((n.hand, n.voice, n.pos), []).append(n)
     events: dict[tuple[int, int], list[tuple[Fraction, Fraction, list[Note]]]] = {}
-    last = F(0)
     for (hand, voice, pos), chord in grouped.items():
-        start = (pos - origin) * beat
-        end = start + max(n.dur for n in chord) * beat
+        start = layout.quarters(pos)
+        end = layout.quarters(pos + max(n.dur for n in chord))
         events.setdefault((hand, voice), []).append((start, end, sorted(chord, key=lambda n: n.pitch)))
-        last = max(last, end)
 
-    # Bar boundaries.
-    edges = [F(0)]
-    if pickup:
-        edges.append(pickup)
-    while edges[-1] < last:
-        edges.append(edges[-1] + bar)
-    count = len(edges) - 1
-
-    def bar_of(t: Fraction) -> int:
-        if pickup:
-            return 0 if t < pickup else 1 + int((t - pickup) // bar)
-        return int(t // bar)
+    def shift_of(index: int) -> Fraction:
+        """A pickup bar is the end of a bar: its positions count from where that bar would begin."""
+        return meters[0].bar_ql - edges[1] if pickup and index == 0 else F(0)
 
     cells: dict[tuple[int, int, int], list[_Segment]] = {}
     for (hand, voice), line in events.items():
         for start, end, chord in line:
-            index = bar_of(start)
+            index = max(0, min(bisect_right(edges, start) - 1, count - 1))
             while index < count and edges[index] < end:
                 lo, hi = max(start, edges[index]), min(end, edges[index + 1])
-                shift = bar - pickup if pickup and index == 0 else F(0)
+                shift = shift_of(index)
                 cells.setdefault((index, hand, voice), []).append(_Segment(
                     lo - edges[index] + shift, hi - edges[index] + shift, chord,
                     tie_in=lo > start, tie_out=hi < end,
                 ))
                 index += 1
 
-    bars: list[Bar] = []
+    metrics: dict[tuple, Metric] = {}
     for index in range(count):
+        meter = meters[index]
+        key = (meter.beats_per_bar, meter.beat_ql, meter.numerator, meter.denominator)
+        metric = metrics.setdefault(key, Metric(meter))
+        span = meter.beat_ql if meter.beat_ql in (F(1, 2), F(1), F(2)) else None
         length = edges[index + 1] - edges[index]
-        shift = bar - pickup if pickup and index == 0 else F(0)
+        shift = shift_of(index)
         staves = []
         for hand in (RIGHT, LEFT):
             upper = cells.get((index, hand, 0), [])
@@ -375,5 +387,5 @@ def engrave(notes: list[Note], grid: Grid, meter: Meter) -> Layout:
             else:
                 voices = [_voice_atoms(upper or lower, shift, length, metric, span, fill=True)]
             staves.append(voices)
-        bars.append(Bar(index if pickup else index + 1, length, staves))
-    return Layout(meter, bars, origin, edges)
+        layout.bars.append(Bar(index if pickup else index + 1, length, staves))
+    return layout

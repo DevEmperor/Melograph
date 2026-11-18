@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from fractions import Fraction as F
 
 import pytest
@@ -48,7 +49,21 @@ def test_pedal_marks_follow_the_harmony():
     assert len(lines) == 1
     assert lines[0].start == o and [c - o for c in lines[0].changes] == [4, 8] and lines[0].end - o == 12
     xml = musicxml_text(result.score)
-    assert 'type="start"' in xml and 'type="change"' in xml and "<pedal" in xml
+    # every press of the pedal is a line of its own (one long line is drawn unreliably)
+    assert len(re.findall(r'<pedal [^>]*type="start"', xml)) == 3
+    assert len(re.findall(r'<pedal [^>]*type="stop"', xml)) == 3 and 'type="change"' not in xml
+
+
+def test_pedal_all_the_way_through_is_con_pedale():
+    perf, beats, downs = play(
+        " ".join(["e5:1 g5:1 c6:1 g5:1"] * 8),
+        " ".join(["c3:2 g3:2"] * 8),
+        pedals=[(4 * bar + 0.2, 4 * (bar + 1) - 0.1) for bar in range(8)],  # in beats: down for nearly every bar
+    )
+    result = run(perf, beats, downs)
+    xml = musicxml_text(result.score)
+    assert not result.marks.pedals and "<pedal" not in xml and "con pedale" in xml
+    assert len(run(perf, beats, downs, pedal="lines").marks.pedals) == 1
 
 
 def test_slur_over_legato_but_not_over_staccato():
@@ -137,14 +152,15 @@ def test_quarter_note_triplets_share_one_bracket():
 
 def test_crescendo_hairpin_from_a_rising_line():
     perf, beats, downs = play(
-        " ".join(["c5:1 e5:1 g5:1 e5:1"] * 4) + " c6:4",
-        " ".join(["c3:2 g3:2"] * 5),
+        " ".join(["c5:1 e5:1 g5:1 e5:1"] * 6) + " c6:4",
+        " ".join(["c3:2 g3:2"] * 7),
     )
-    ordered = sorted(perf.notes, key=lambda n: n.onset)
-    for i, n in enumerate(ordered):
-        n.velocity = int(40 + 70 * i / len(ordered))
+    # two quiet bars, a rise over two bars, two loud bars
+    for n in perf.notes:
+        n.velocity = int(40 + 70 * min(1.0, max(0.0, (n.onset - 4.8) / 4.8)))
     result = run(perf, beats, downs)
-    assert any(h.crescendo and not h.words for h in result.marks.hairpins)
+    wedges = [h for h in result.marks.hairpins if h.crescendo and not h.words]
+    assert len(wedges) == 1 and 4 <= wedges[0].start - start(result) <= 12 and wedges[0].end - wedges[0].start <= 8
     assert result.marks.dynamics[0][1] in ("pp", "p")
     assert result.marks.dynamics[-1][1] in ("f", "ff")
     assert "<wedge" in musicxml_text(result.score)

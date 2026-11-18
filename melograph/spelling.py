@@ -87,6 +87,95 @@ def make_key(tonic: int, minor: bool) -> Key:
     return Key(tonic, minor, _line_of_fifths((tonic + 3) % 12 if minor else tonic))
 
 
+# How foreign a note is to a key signature, counted from the major tonic: the notes of
+# the scale are at home, the raised seventh and sixth of the relative minor nearly so.
+FOREIGN = np.array([0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.8, 0.0, 0.5, 0.0, 1.0, 0.0])
+KEY_CHANGE = 0.4  # what a change of key signature costs, in bars of entirely foreign notes
+KEY_SOUND = 0.25  # weight of how much the music sounds like a key, against the foreign notes
+
+
+def estimate_keys(notes: list[Note], bar_of, bars: int) -> list[Key]:
+    """The key of every bar: one key for as long as it fits, a new signature where the music modulates.
+
+    A signature is kept through passing chromatic notes and short excursions; it
+    changes when a stretch of the music clearly lives in another key.
+    """
+    weight = np.zeros((bars, 12))
+    for n in notes:
+        weight[bar_of(n.pos), n.pitch % 12] += 0.2 + min(n.sustain_end - n.onset, 1.5)
+    typical = float(np.mean(weight.sum(axis=1)[weight.sum(axis=1) > 0])) if weight.any() else 1.0
+    # emission[bar, tonic]: minus the share of foreign notes under the signature of that major key …
+    emission = np.stack([-(weight * np.roll(FOREIGN, tonic)).sum(axis=1) / typical for tonic in range(12)], axis=1)
+    # … plus how much the bar and its neighbours sound like that key (or its relative minor):
+    # the notes of A major fit the signature of D nearly as well, but they do not sound like D.
+    profiles = [
+        (np.roll(MAJOR, tonic) - MAJOR.mean(), np.roll(MINOR, (tonic + 9) % 12) - MINOR.mean()) for tonic in range(12)
+    ]
+    for index in range(bars):
+        around = weight[max(0, index - 1):index + 2].sum(axis=0)
+        if around.sum() <= 0:
+            continue
+        centred = around - around.mean()
+        size = float(np.linalg.norm(centred)) or 1.0
+        for tonic, (major, minor) in enumerate(profiles):
+            sounds = max(float(centred @ major) / (size * float(np.linalg.norm(major))),
+                         float(centred @ minor) / (size * float(np.linalg.norm(minor))))
+            emission[index, tonic] += KEY_SOUND * sounds * min(1.0, weight[index].sum() / typical)
+    # Where no note decides between two signatures (a tune in G without any F or F sharp),
+    # the key the piece as a whole sounds like does.  The same small head start in every
+    # bar: it settles ties and never makes the signature change by itself.
+    whole = weight.sum(axis=0)
+    ordered = sorted(notes, key=lambda n: n.onset)
+    edge = max(1, len(ordered) // 20)
+    first_bass = min(ordered[:edge], key=lambda n: n.pitch).pitch % 12 if ordered else -1
+    last_bass = min(ordered[-edge:], key=lambda n: n.pitch).pitch % 12 if ordered else -1
+    if whole.sum() > 0:
+        for tonic in range(12):
+            sounds = max(
+                float(np.corrcoef(whole, np.roll(profile, home))[0, 1])
+                + 0.06 * (home == last_bass) + 0.03 * (home == first_bass)
+                for home, profile in ((tonic, MAJOR), ((tonic + 9) % 12, MINOR))
+            )
+            emission[:, tonic] += 0.02 * sounds
+    score = emission[0].copy()
+    back = np.zeros((bars, 12), dtype=int)
+    for index in range(1, bars):
+        best = int(np.argmax(score))
+        move = score[best] - KEY_CHANGE
+        back[index] = np.where(score >= move, np.arange(12), best)
+        score = np.maximum(score, move) + emission[index]
+    path = [int(np.argmax(score))]
+    for index in range(bars - 1, 0, -1):
+        path.append(int(back[index][path[-1]]))
+    path.reverse()
+
+    # Major or relative minor is decided for each stretch as a whole.
+    keys: list[Key] = []
+    index = 0
+    while index < bars:
+        end = index
+        while end < bars and path[end] == path[index]:
+            end += 1
+        histogram = weight[index:end].sum(axis=0)
+        tonic = path[index]
+        key = make_key(tonic, False)
+        if histogram.sum() > 0:
+            relative = (tonic + 9) % 12
+            major = float(np.corrcoef(histogram, np.roll(MAJOR, tonic))[0, 1])
+            minor = float(np.corrcoef(histogram, np.roll(MINOR, relative))[0, 1])
+            if end == bars:  # a piece ends on its tonic
+                major += 0.06 * (tonic == last_bass)
+                minor += 0.06 * (relative == last_bass)
+            if index == 0:
+                major += 0.03 * (tonic == first_bass)
+                minor += 0.03 * (relative == first_bass)
+            if minor > major:
+                key = make_key(relative, True)
+        keys.extend([key] * (end - index))
+        index = end
+    return keys
+
+
 def parse_key(text: str) -> Key:
     """'C', 'c', 'Cm', 'F#', 'Bb', 'es', 'fis-moll', 'Eb major' …"""
     raw = text.strip()

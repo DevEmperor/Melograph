@@ -109,9 +109,19 @@ def summary(result, files: dict[str, Path], language: str) -> None:
     fifths = result.key.fifths
     signature = t("no_accidentals") if fifths == 0 else f"{abs(fifths)} {'♯' if fifths > 0 else '♭'}"
     unit, bpm = result.tempo
-    table.add_row(t("key"), Text(result.key.label(language), style="bold").append(f"  ({signature})", style=DIM))
-    table.add_row(t("time"), Text(str(result.meter), style="bold"))
-    table.add_row(t("tempo"), Text(f"{unit} = {bpm}", style="bold"))
+    key = Text(result.key.label(language), style="bold").append(f"  ({signature})", style=DIM)
+    if result.key_changes:
+        key.append("  " + t("then_changes", count=result.key_changes), style=DIM)
+    time = Text(str(result.meter), style="bold")
+    if result.meter_changes:
+        time.append("  " + t("then_changes", count=result.meter_changes), style=DIM)
+    speed = Text(f"{unit} = {bpm}", style="bold")
+    tempos = sum(1 for m in result.marks.tempos if m.bpm is not None) - 1
+    if tempos > 0:
+        speed.append("  " + t("then_changes", count=tempos), style=DIM)
+    table.add_row(t("key"), key)
+    table.add_row(t("time"), time)
+    table.add_row(t("tempo"), speed)
     table.add_row(t("length"), f"{t('bars', bars=result.bars)} · {clock(result.performance.duration)}")
     table.add_row(t("hands_label"), t("hands", right=result.right_hand, left=result.left_hand))
     table.add_row("", "")

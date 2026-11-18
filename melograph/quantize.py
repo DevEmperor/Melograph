@@ -39,20 +39,25 @@ class Quantisation:
     thirds: tuple[int, int] = (0, 0)
 
 
-def find_graces(notes: list[Note], grid: Grid, slots: int) -> list[Note]:
+def find_graces(notes: list[Note], grid: Grid, finest: int) -> list[Note]:
     """Find grace notes and return the notes that remain for the rhythm.
 
     A grace note is flicked just before its main note, a step away from it, and
     let go at once.  It has no place in the bar of its own – it falls into the
-    same slot of the finest grid (`slots` per beat) as its main note – and
-    forced onto the grid it would wreck the rhythm around it.  Fast runs are
-    left alone: the note must stand by itself, with nothing similar right
-    before or after.
+    same slot of the finest grid as its main note – and forced onto the grid it
+    would wreck the rhythm around it.  Fast runs are left alone: the note must
+    stand by itself, with nothing similar right before or after.
     """
     ordered = sorted(notes, key=lambda n: (n.onset, n.pitch))
     onsets = [n.onset for n in ordered]
     for n in ordered:
         n.grace_of, n.graces = None, []
+
+    def slot(seconds: float) -> int:
+        beat = grid.beat_of(seconds)
+        slots = (6 if grid.meter_at(beat).compound else 4) * (2 if finest >= 32 else 1)
+        return round(beat * slots)
+
     for i, g in enumerate(ordered):
         if g.offset - g.onset > 0.16:
             continue
@@ -66,7 +71,7 @@ def find_graces(notes: list[Note], grid: Grid, slots: int) -> list[Note]:
                 and 1 <= abs(m.pitch - g.pitch) <= 2
                 and g.offset <= m.onset + 0.07
                 and m.offset - m.onset > 0.16
-                and round(grid.beat_of(g.onset) * slots) == round(grid.beat_of(m.onset) * slots)
+                and slot(g.onset) == slot(m.onset)
             ):
                 main = m
                 break
@@ -117,25 +122,33 @@ def quantise(
     """Set `pos`, `key_end` and `snd_end` (all in beats) on every note.
 
     `compound` means the beat itself is a dotted note (6/8, 12/8 …), so that
-    three to a beat is the plain case and two to a beat the exception.
+    three to a beat is the plain case and two to a beat the exception; once
+    the metres of the grid are set, they decide that bar by bar.
     `warp` maps the position inside a beat (0 … 1) before fitting; swing uses it
     to turn its long-short pairs into the even eighths they are written as.
     """
-    if compound:
-        penalties = {1: 0.0, 3: 0.35, 2: 1.9}
-        if finest >= 16:
-            penalties[6] = 1.2
-        triplets = "on"
-    else:
-        penalties = {1: 0.0, 2: 0.35, 4: 1.2}
+    dotted = {1: 0.0, 3: 0.35, 2: 1.9}
+    if finest >= 16:
+        dotted[6] = 1.2
+    plain = {1: 0.0, 2: 0.35, 4: 1.2}
+    if finest >= 32:
+        plain[8] = 3.6
+    if finest <= 8:
+        plain.pop(4)
+    if triplets != "off":
+        plain[3] = 1.7
         if finest >= 32:
-            penalties[8] = 3.6
-        if finest <= 8:
-            penalties.pop(4)
-        if triplets != "off":
-            penalties[3] = 1.7
-            if finest >= 32:
-                penalties[6] = 3.9
+            plain[6] = 3.9
+    if grid.meters and not compound:
+        in_three = {k for index, meter in enumerate(grid.meters) if meter.compound
+                    for k in range(grid.bar_start(index), grid.bar_start(index + 1))}
+    else:
+        in_three = None  # all beats alike
+
+    def penalties_of(k: int, plain: dict[int, float] = plain) -> dict[int, float]:
+        if in_three is None:
+            return dotted if compound else plain
+        return dotted if k in in_three else plain
 
     def beat(seconds: float) -> float:
         """Continuous beat position; with swing the long-short pairs become even."""
@@ -155,14 +168,15 @@ def quantise(
     for m in moments:
         by_beat.setdefault(int(np.floor(m)), []).append(m - np.floor(m))
 
-    def solve(pen: dict[int, float]) -> dict[int, int]:
+    def solve(plain: dict[int, float], doubtful: dict[int, float] | None = None, trusted: set[int] = frozenset()) -> dict[int, int]:
+        """The division of every beat. `doubtful` penalties apply to all beats but the `trusted` ones."""
         beats = sorted(by_beat)
-        options = sorted(pen)
         best: list[dict[int, tuple[float, int | None]]] = []
         for index, k in enumerate(beats):
             seconds = grid.beat_seconds(k)
+            pen = penalties_of(k, plain if doubtful is None or k in trusted else doubtful)
             row: dict[int, tuple[float, int | None]] = {}
-            for d in options:
+            for d in sorted(pen):
                 cost = pen[d]
                 slots: set[int] = set()
                 for f in by_beat[k]:
@@ -189,22 +203,30 @@ def quantise(
             d = best[index][d][1]
         return result
 
-    divisions = solve(penalties)
+    divisions = solve(plain)
 
-    def share(div: dict[int, int]) -> float:
-        subdivided = [d for d in div.values() if d > 1]
+    def share(div: dict[int, int], everywhere: bool = True) -> float:
+        subdivided = [d for k, d in div.items() if d > 1 and (everywhere or not in_three or k not in in_three)]
         return sum(1 for d in subdivided if d in TRIPLE) / len(subdivided) if subdivided else 0.0
 
-    triple_share = share(divisions)
-    if triplets == "auto" and 0 < triple_share < 0.12:
-        # A handful of triplet beats in a piece that otherwise moves in twos is
-        # almost always rubato; ask for much stronger evidence.
-        stricter = dict(penalties)
+    if triplets == "auto" and not compound and 0 < share(divisions, everywhere=False) < 0.12:
+        # A handful of triplet beats in music that otherwise moves in twos is almost
+        # always rubato; ask for much stronger evidence – unless a beat has the shape of
+        # a real triplet: all three notes, or the pair of beats of a quarter-note triplet
+        # (a note on the last third, then one on the first third of the next beat).
+        def thirds(k: int) -> set[int]:
+            return {int(round(f * 3)) for f in by_beat.get(k, [])} & {1, 2}
+
+        shaped = {k for k in by_beat if thirds(k) == {1, 2}}
+        for k in by_beat:
+            if thirds(k) == {2} and thirds(k + 1) == {1}:
+                shaped.update((k, k + 1))
+        stricter = dict(plain)
         for d in TRIPLE:
             if d in stricter:
                 stricter[d] += 2.5
-        divisions = solve(stricter)
-        triple_share = share(divisions)
+        divisions = solve(plain, stricter, shaped)
+    triple_share = share(divisions)
 
     thirds = [0, 0, 0]
     for cluster, moment in zip(clusters, moments):

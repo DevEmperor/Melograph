@@ -13,6 +13,7 @@ Rectangle {
 
     function set(name, value) { controller.setOption(name, value) }
     function autoText(detail) { return tr.auto_value.replace("%1", detail) }
+    function changes(count) { return (count === 1 ? tr.one_change : tr.n_changes).replace("%1", count) }
     function keyLabel(value) {
         const minor = value.endsWith("m")
         const root = minor ? value.slice(0, -1) : value
@@ -55,11 +56,15 @@ Rectangle {
                 columns: 2
                 columnSpacing: 8
                 rowSpacing: 8
+                // What the piece begins with; "+ n changes" where key, metre or tempo change later on.
                 Fact { label: sidebar.tr.key_label; value: sidebar.s.keyValue ? sidebar.keyLabel(sidebar.s.keyValue) : "–"
-                       detail: sidebar.s.fifths === undefined ? "" : sidebar.s.fifths === 0 ? sidebar.tr.no_accidentals
+                       detail: sidebar.s.keyChanges > 0 ? sidebar.changes(sidebar.s.keyChanges)
+                               : sidebar.s.fifths === undefined ? "" : sidebar.s.fifths === 0 ? sidebar.tr.no_accidentals
                                : Math.abs(sidebar.s.fifths) + (sidebar.s.fifths > 0 ? " ♯" : " ♭") }
-                Fact { label: sidebar.tr.meter_label; value: sidebar.s.meter || "–"; detail: sidebar.s.swing ? sidebar.tr.swing_on : "" }
-                Fact { label: sidebar.tr.tempo_label; value: sidebar.s.tempo ? sidebar.s.tempoUnit + " = " + sidebar.s.tempo : "–" }
+                Fact { label: sidebar.tr.meter_label; value: sidebar.s.meter || "–"
+                       detail: sidebar.s.swing ? sidebar.tr.swing_on : sidebar.s.meterChanges > 0 ? sidebar.changes(sidebar.s.meterChanges) : "" }
+                Fact { label: sidebar.tr.tempo_label; value: sidebar.s.tempo ? sidebar.s.tempoUnit + " = " + sidebar.s.tempo : "–"
+                       detail: sidebar.s.tempoChanges > 0 ? sidebar.changes(sidebar.s.tempoChanges) : "" }
                 Fact { label: sidebar.tr.bars_label; value: sidebar.s.bars || "–"; detail: sidebar.s.notes ? sidebar.s.notes + " " + sidebar.tr.notes_label : "" }
             }
 
@@ -183,11 +188,13 @@ Rectangle {
                 title: sidebar.tr.section_marks
                 OptionRow {
                     label: sidebar.tr.pedal
-                    Segments {
-                        value: sidebar.o.pedal
-                        itemPadding: 12
-                        options: [{ text: sidebar.tr.pedal_lines, value: "lines" }, { text: sidebar.tr.pedal_signs, value: "signs" },
-                                  { text: sidebar.tr.pedal_text, value: "text" }, { text: sidebar.tr.off, value: "off" }]
+                    tip: sidebar.tr.pedal_tip
+                    Choice {
+                        width: 142
+                        current: sidebar.o.pedal
+                        choices: [{ text: sidebar.tr.auto, value: "auto" }, { text: sidebar.tr.pedal_lines, value: "lines" },
+                                  { text: sidebar.tr.pedal_signs, value: "signs" }, { text: sidebar.tr.pedal_text, value: "text" },
+                                  { text: sidebar.tr.off, value: "off" }]
                         onChosen: (value) => sidebar.set("pedal", value)
                     }
                 }

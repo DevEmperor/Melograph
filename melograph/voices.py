@@ -48,7 +48,7 @@ def shape(
         if not mine:
             continue
         events = _events(mine, quantisation, grid, anchors, pedals, max_voices, staccato)
-        _assign_streams(events, grid.beats_per_bar)
+        _assign_streams(events)
         for event in events:
             for n in event.notes:
                 n.dur = event.end - event.start
@@ -76,9 +76,16 @@ def _events(
     for n in notes:
         chords.setdefault(n.pos, []).append(n)
     starts = sorted(chords)
-    bar, phase = grid.beats_per_bar, grid.phase
     events: list[Event] = []
     candidates: list[tuple[list[Note], bool]] = []  # notes that could carry a staccato dot
+
+    # Is holding keys down through the following notes a habit of this hand (the bass and
+    # tenor of Bach's C major prelude), or does it only happen here and there?  Under the
+    # pedal only a habit is written out; a key that merely stays down a little longer in a
+    # pedalled tune is not a voice of its own.
+    close = [(pos, nxt) for pos, nxt in zip(starts, starts[1:]) if nxt - pos <= 1]
+    kept = sum(1 for pos, nxt in close if any(n.key_end - float(nxt) >= 1.0 for n in chords[pos]))
+    habit = len(close) >= 8 and kept >= 0.15 * len(close)
 
     for i, pos in enumerate(starts):
         following = starts[i + 1] if i + 1 < len(starts) else None
@@ -105,7 +112,7 @@ def _events(
                 since = grid.time_of(float(following))
                 up = _pedal_up(pedals, since, n.offset)
                 audible = up >= n.offset - since - 1e-6 or up >= 0.25
-                deliberate = overlap >= 1.0
+                deliberate = overlap >= 1.0 and (habit or audible)
                 if deliberate or (audible and overlap >= max(0.75 * next_gap, 0.4)):
                     end = snap_length(pos, n.key_end, quantisation, anchors)
                     if end > following:
@@ -116,19 +123,30 @@ def _events(
 
             if following is not None:
                 gap = following - pos
-                if gap <= 1 or sound_length >= 0.6 * float(gap):
+                if pos.denominator != 1 and gap > to_beat and key_length < 0.6 * float(gap):
+                    # Struck off the beat and let go before the next note: written to the end of
+                    # its beat, then a rest.  A tie over the beat says the key stays down; it is
+                    # not there to fill a gap (repeated chords with rests between them).
+                    length = to_beat
+                elif gap <= 1 or sound_length >= 0.6 * float(gap):
                     length = gap
                 else:
                     end = snap_length(pos, n.snd_end, quantisation, anchors)
                     length = min(gap, max(end - pos, to_beat))
+                # What only the pedal carries on is written to the end of its bar at most:
+                # a tie over the bar line says the key stays down, and that needs the key.
+                bar_end = Fraction(grid.bar_end(pos))
+                if pos + length > bar_end:
+                    key_held = snap_length(pos, n.key_end, quantisation, anchors)
+                    length = min(length, max(bar_end, key_held) - pos)
             else:
                 # Last sound of this hand: let it ring to the end of its bar, but not for ever.
                 end = snap_length(pos, n.snd_end, quantisation, anchors)
                 end = max(end, pos + to_beat)
-                bar_end = phase + bar * (math.floor((pos - phase) / bar) + 1)
+                bar_end = grid.bar_end(pos)
                 if bar_end - 1 <= end < bar_end:
                     end = Fraction(bar_end)
-                length = min(end, Fraction(bar_end + bar)) - pos
+                length = min(end, Fraction(grid.bar_end(bar_end))) - pos
             main.append(n)
             main_length = max(main_length, length)
 
@@ -162,7 +180,7 @@ def _is_staccato(n: Note, pos: Fraction, length: Fraction) -> bool:
     )
 
 
-def _assign_streams(events: list[Event], bar: int) -> None:
+def _assign_streams(events: list[Event]) -> None:
     """Distribute the events of one staff over an upper and a lower voice."""
     if any(e.held for e in events):
         groups: dict[Fraction, list[Event]] = {}

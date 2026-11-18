@@ -18,7 +18,7 @@ DEFAULTS = {
     "swing": "auto",
     "voices": 2,
     "split": "auto",  # "auto" or a MIDI pitch
-    "pedal": "lines",
+    "pedal": "auto",
     "slurs": True,
     "dynamics": True,
     "hairpins": True,

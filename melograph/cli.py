@@ -45,7 +45,7 @@ def _parser() -> argparse.ArgumentParser:
     notation.add_argument("--split", metavar="C4", help=t("arg_split"))
     notation.add_argument("--voices", type=int, choices=[1, 2], default=2, help=t("arg_voices"))
     notation.add_argument("--swing", choices=["auto", "on", "off"], default="auto", help=t("arg_swing"))
-    notation.add_argument("--pedal", choices=["lines", "signs", "text", "off"], default="lines", help=t("arg_pedal"))
+    notation.add_argument("--pedal", choices=["auto", "lines", "signs", "text", "off"], default="auto", help=t("arg_pedal"))
     notation.add_argument("--chords", action="store_true", help=t("arg_chords"))
     notation.add_argument("--composer", metavar="TEXT", help=t("arg_composer"))
     notation.add_argument("--no-graces", action="store_true", help=t("arg_no_graces"))
@@ -295,7 +295,7 @@ def _convert(source: Path, args, interactive: bool) -> Path:
     ui.console.print()
     base = _targets(source, args.output, args.overwrite, interactive, suffixes)
 
-    beats = downbeats = None
+    tracked = None
     remembered = None
     if is_midi:
         from .transcribe import read_midi
@@ -312,9 +312,21 @@ def _convert(source: Path, args, interactive: bool) -> Path:
         key = cache.fingerprint(source)
         remembered = None if args.fresh else cache.load(key)
         if remembered is not None:
-            performance, beats, downbeats = remembered
+            performance, tracked = remembered
             with ui.Step(t("step_cache"), t("done_cache")) as step:
                 step.done(t("notes_pedals", notes=len(performance.notes), pedals=len(performance.pedals)))
+            if tracked is None:
+                # Remembered by an older version, which kept a list of beats only: the pulse is heard again.
+                with ui.Step(t("step_beats"), t("done_beats")) as step:
+                    from .beats import track_audio
+                    from .transcribe import pick_device
+
+                    try:
+                        tracked = track_audio(load_audio(source), SAMPLE_RATE, pick_device(args.device))
+                        cache.save_tracked(key, tracked)
+                    except Exception:
+                        tracked = None
+                    step.done(t("from_notes") if tracked is None else "Beat This!")
 
     if not is_midi and remembered is None:
         with ui.Step(t("step_load"), t("done_load")) as step:
@@ -349,12 +361,12 @@ def _convert(source: Path, args, interactive: bool) -> Path:
             if not beat_model_ready():
                 step.note(t("first_run"))
             try:
-                beats, downbeats = track_audio(audio, SAMPLE_RATE, device)
+                tracked = track_audio(audio, SAMPLE_RATE, device)
             except Exception:
-                beats = downbeats = None
-            cache.save(key, source, performance, beats, downbeats, cache.waveform_peaks(audio))
+                tracked = None
+            cache.save(key, source, performance, tracked, cache.waveform_peaks(audio))
             del audio
-            step.done(t("from_notes") if beats is None else "Beat This!")
+            step.done(t("from_notes") if tracked is None else "Beat This!")
 
     midi_path = None
     if not is_midi and not args.no_midi:
@@ -364,7 +376,7 @@ def _convert(source: Path, args, interactive: bool) -> Path:
         write_midi(performance, midi_path)
 
     with ui.Step(t("step_score"), t("done_score")) as step:
-        result = analyse(performance, beats, downbeats, options)
+        result = analyse(performance, None, None, options, tracked)
         unit, bpm = result.tempo
         step.done(f"{result.meter} · {unit} = {bpm} · {result.key.label(language())}")
 

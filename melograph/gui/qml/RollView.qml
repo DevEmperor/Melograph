@@ -38,20 +38,25 @@ Item {
         }
     }
 
-    WheelHandler {
-        acceptedModifiers: Qt.ControlModifier
-        onWheel: (event) => rollView.zoomBy(Math.pow(1.15, event.angleDelta.y / 120))
-    }
-    WheelHandler {
-        acceptedModifiers: Qt.NoModifier | Qt.ShiftModifier
-        onWheel: (event) => {
+    // Wheel and touchpad (a MouseArea is given every wheel event, a WheelHandler only those of a mouse)
+    MouseArea {
+        anchors.fill: parent
+        acceptedButtons: Qt.NoButton
+        onWheel: (wheel) => {
+            const touchpad = wheel.pixelDelta.x !== 0 || wheel.pixelDelta.y !== 0
+            if (wheel.modifiers & Qt.ControlModifier) {
+                const turned = touchpad ? (wheel.pixelDelta.y || wheel.pixelDelta.x) / 50
+                                        : (wheel.angleDelta.y || wheel.angleDelta.x) / 120
+                if (turned !== 0) rollView.zoomBy(Math.pow(1.15, turned))
+                return
+            }
             // a notch moves a sixth of the view; a touchpad moves twice as far as the fingers
             let seconds
-            if (event.pixelDelta.x !== 0 || event.pixelDelta.y !== 0) {
-                const pixels = event.pixelDelta.x !== 0 ? event.pixelDelta.x : event.pixelDelta.y
+            if (touchpad) {
+                const pixels = wheel.pixelDelta.x !== 0 ? wheel.pixelDelta.x : wheel.pixelDelta.y
                 seconds = pixels * 2 / Math.max(1, roll.width - 34) * roll.viewSpan
             } else {
-                seconds = (event.angleDelta.x !== 0 ? event.angleDelta.x : event.angleDelta.y) / 120 * roll.viewSpan * 0.16
+                seconds = (wheel.angleDelta.x !== 0 ? wheel.angleDelta.x : wheel.angleDelta.y) / 120 * roll.viewSpan * 0.16
             }
             roll.viewStart = Math.max(0, Math.min(rollView.total - roll.viewSpan * 0.5, roll.viewStart - seconds))
         }

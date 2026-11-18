@@ -2,9 +2,12 @@
 
 Each chord is cut at some pitch: everything below goes to the left hand,
 everything above to the right.  Where to cut is decided for the whole piece
-together (beam search) by what two real hands can do: how far a hand can
-stretch, how far it has to travel and how much time it has for that, keys it
-is still holding down, and the two hands not getting in each other's way.
+together (beam search) by what two real hands do: how far a hand can stretch,
+how far it has to travel and how much time it has for that, keys it is still
+holding down, the two hands not getting in each other's way – and habit: a
+hand that has just played a key plays it again, and a hand that is running a
+figure in even notes goes on with it.  That keeps an accompaniment in the left
+hand even when it climbs into the register of the tune.
 """
 
 from __future__ import annotations
@@ -13,14 +16,16 @@ from dataclasses import dataclass
 
 from .model import LEFT, RIGHT, Note
 
-BEAM = 48
+BEAM = 12  # combinations kept from chord to chord (the three test pieces come out the same from 6 to 48)
 STRETCH = 12  # semitones a hand covers comfortably
 MOVE = 0.25  # cost per semitone the hand has to travel outside its position
-PREFERENCE = 0.08  # pull of the low register to the left hand, the high one to the right
+PREFERENCE = 0.04  # pull of the low register to the left hand, the high one to the right
+LOW, HIGH = 55, 69  # between these notes (G3 … A4) either hand is equally at home
 
-
-SHORT = 0.35  # seconds: a key let go this quickly belongs to a figure, not to a held note
-STREAM = 0.25  # cost of breaking a running figure away from the hand that plays it
+MEMORY = 2.0  # seconds a hand remembers which keys it played
+AGAIN = 0.3  # how much playing a key again with the same hand is worth (and with the other one costs)
+FIGURE = 0.15  # how much going on with a figure in even notes is worth
+EVEN = 0.6  # seconds: longer gaps than this are no figure
 
 
 @dataclass(frozen=True)
@@ -29,13 +34,19 @@ class _Hand:
     high: int
     time: float
     held: tuple[tuple[int, float], ...] = ()
-    figure: float = -1e9  # when this hand last struck a short note
+    keys: tuple[tuple[int, float], ...] = ()  # (pitch, time) of what the hand played lately
+    gap: float = 0.0  # time between its last two attacks
 
 
-def _play(hand: _Hand, chord: list[Note], time: float, side: int) -> tuple[float, _Hand]:
-    """Cost of this hand playing `chord` now, and the hand afterwards."""
+def _play(hand: _Hand, chord: list[Note], time: float, side: int) -> tuple[float, _Hand, frozenset]:
+    """Cost of this hand playing `chord` now, the hand afterwards, and the keys it remembers.
+
+    (What the other hand remembers is added by the caller: this part depends on one hand
+    only and is worked out once for all the combinations a hand appears in.)
+    """
+    mine = frozenset(p for p, t in hand.keys if time - t <= MEMORY)
     if not chord:
-        return 0.0, hand
+        return 0.0, hand, mine
     low, high = chord[0].pitch, chord[-1].pitch
     held = tuple((p, release) for p, release in hand.held if release > time + 0.05)
     cost = 0.0
@@ -60,20 +71,24 @@ def _play(hand: _Hand, chord: list[Note], time: float, side: int) -> tuple[float
 
     # A soft pull towards the usual registers; around middle C either hand is fine.
     for n in chord:
-        cost += PREFERENCE * (max(0, 57 - n.pitch) if side == RIGHT else max(0, n.pitch - 64))
+        cost += PREFERENCE * (max(0, LOW - n.pitch) if side == RIGHT else max(0, n.pitch - HIGH))
+
+    # Habit: the same key again with the same hand (an ostinato, a broken chord, repeated chords).
+    cost -= AGAIN * sum(1 for n in chord if n.pitch in mine) / len(chord)
+    # And the hand that plays even notes goes on playing them.
+    if 0 < hand.gap <= EVEN and abs(elapsed - hand.gap) <= 0.2 * hand.gap:
+        cost -= FIGURE
 
     held += tuple((n.pitch, n.offset) for n in chord)
-    short = any(n.offset - n.onset < SHORT for n in chord)
-    return cost, _Hand(low, high, time, held, time if short else hand.figure)
+    keys = tuple((p, t) for p, t in hand.keys if time - t <= MEMORY)[-12:] + tuple((n.pitch, time) for n in chord)
+    return cost, _Hand(low, high, time, held, keys, elapsed), mine
 
 
-def _figure(hand: _Hand, other: _Hand, chord: list[Note], time: float) -> float:
-    """Cost of giving a short note to this hand while the other hand is in the middle of a figure."""
-    if not chord or not any(n.offset - n.onset < SHORT for n in chord):
+def _others_keys(chord: list[Note], mine: frozenset, theirs: frozenset) -> float:
+    """Cost of striking keys the other hand has just played (and this one has not)."""
+    if not chord:
         return 0.0
-    if other.figure > hand.figure and time - other.figure < SHORT:
-        return STREAM
-    return 0.0
+    return AGAIN * sum(1 for n in chord if n.pitch in theirs and n.pitch not in mine) / len(chord)
 
 
 def _crossing(left: _Hand, right: _Hand, played_left: bool, played_right: bool, time: float) -> float:
@@ -110,13 +125,23 @@ def split_hands(notes: list[Note], split_pitch: int | None = None) -> None:
     for chord in ordered:
         time = sum(n.onset for n in chord) / len(chord)
         candidates: dict[tuple, tuple[float, _Hand, _Hand, tuple | None]] = {}
+        # The same hand turns up in many of the combinations kept; what it costs to play
+        # one part of the chord is worked out once.
+        played: dict[tuple[int, int, int], tuple[float, _Hand, frozenset]] = {}
+
+        def play(hand: _Hand, part: list[Note], cut: int, side: int) -> tuple[float, _Hand, frozenset]:
+            key = (id(hand), cut, side)
+            if key not in played:
+                played[key] = _play(hand, part, time, side)
+            return played[key]
+
         for cost, right, left, trail in beam:
             for cut in range(len(chord) + 1):
                 lower, upper = chord[:cut], chord[cut:]
-                cost_left, new_left = _play(left, lower, time, LEFT)
-                cost_right, new_right = _play(right, upper, time, RIGHT)
+                cost_left, new_left, left_keys = play(left, lower, cut, LEFT)
+                cost_right, new_right, right_keys = play(right, upper, cut, RIGHT)
                 total = cost + cost_left + cost_right + _crossing(new_left, new_right, bool(lower), bool(upper), time)
-                total += _figure(left, right, lower, time) + _figure(right, left, upper, time)
+                total += _others_keys(lower, left_keys, right_keys) + _others_keys(upper, right_keys, left_keys)
                 key = (new_right.low, new_right.high, new_right.time, new_left.low, new_left.high, new_left.time)
                 if key not in candidates or total < candidates[key][0]:
                     candidates[key] = (total, new_right, new_left, (trail, cut))

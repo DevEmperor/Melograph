@@ -193,19 +193,24 @@ Item {
 
         // The wheel: Ctrl zooms where the pointer is, Shift scrolls sideways, a touchpad scrolls
         // in both directions. Twice as far per step as Qt would scroll on its own.
-        WheelHandler {
+        // (A MouseArea, because it is given every wheel event: a WheelHandler takes those of a
+        // mouse only and leaves out a touchpad – two fingers with Ctrl then did nothing at all.)
+        MouseArea {
             parent: flick
-            acceptedModifiers: Qt.KeyboardModifierMask
-            onWheel: (event) => {
-                const touchpad = event.pixelDelta.x !== 0 || event.pixelDelta.y !== 0
-                if (event.modifiers & Qt.ControlModifier) {
-                    const steps = touchpad ? event.pixelDelta.y / 60 : event.angleDelta.y / 120
-                    view.zoomAt(Math.pow(1.12, steps), event.x, event.y)
+            anchors.fill: parent
+            acceptedButtons: Qt.NoButton
+            onWheel: (wheel) => {
+                const touchpad = wheel.pixelDelta.x !== 0 || wheel.pixelDelta.y !== 0
+                if (wheel.modifiers & Qt.ControlModifier) {
+                    // one notch of a wheel, or about 50 pixels of finger travel, is one step
+                    const turned = touchpad ? (wheel.pixelDelta.y || wheel.pixelDelta.x) / 50
+                                            : (wheel.angleDelta.y || wheel.angleDelta.x) / 120
+                    if (turned !== 0) view.zoomAt(Math.pow(1.12, turned), wheel.x, wheel.y)
                     return
                 }
-                let dx = touchpad ? -event.pixelDelta.x * view.touchpadSpeed : -event.angleDelta.x / 120 * view.wheelStep
-                let dy = touchpad ? -event.pixelDelta.y * view.touchpadSpeed : -event.angleDelta.y / 120 * view.wheelStep
-                if ((event.modifiers & Qt.ShiftModifier) && dx === 0) {
+                let dx = touchpad ? -wheel.pixelDelta.x * view.touchpadSpeed : -wheel.angleDelta.x / 120 * view.wheelStep
+                let dy = touchpad ? -wheel.pixelDelta.y * view.touchpadSpeed : -wheel.angleDelta.y / 120 * view.wheelStep
+                if ((wheel.modifiers & Qt.ShiftModifier) && dx === 0) {
                     dx = dy
                     dy = 0
                 }
