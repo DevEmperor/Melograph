@@ -18,7 +18,9 @@ from .model import LEFT, RIGHT, Note
 
 BEAM = 12  # combinations kept from chord to chord (the three test pieces come out the same from 6 to 48)
 STRETCH = 12  # semitones a hand covers comfortably
+GRIP = 0.004  # cost of a wide grip (times the square of what it has beyond a fifth): an octave is everyday
 MOVE = 0.25  # cost per semitone the hand has to travel outside its position
+NEAR = 2  # semitones a hand shifts without that being a move
 PREFERENCE = 0.04  # pull of the low register to the left hand, the high one to the right
 LOW, HIGH = 55, 69  # between these notes (G3 … A4) either hand is equally at home
 
@@ -55,7 +57,7 @@ def _play(hand: _Hand, chord: list[Note], time: float, side: int) -> tuple[float
     lowest = min([low] + [p for p, _ in held])
     highest = max([high] + [p for p, _ in held])
     span = highest - lowest
-    cost += 0.01 * max(0, span - 7) ** 2  # beyond a fifth a grip starts to cost a little
+    cost += GRIP * max(0, span - 7) ** 2  # beyond a fifth a grip starts to cost a little
     if span > STRETCH:
         cost += 0.6 * (span - STRETCH) ** 2
     fingers = len(chord) + len(held)
@@ -63,9 +65,10 @@ def _play(hand: _Hand, chord: list[Note], time: float, side: int) -> tuple[float
         cost += 6.0 * (fingers - 5)
 
     # Travelling: free inside an octave around where the hand just was (that is finger
-    # work, not a move), cheap when there is time, expensive when there is not.
+    # work, not a move) and for a step beyond it (octaves moving up a line), cheap when
+    # there is time, expensive when there is not.
     elapsed = max(0.02, time - hand.time)
-    outside = max(0, (hand.high - STRETCH) - low, high - (hand.low + STRETCH))
+    outside = max(0, (hand.high - STRETCH) - low - NEAR, high - (hand.low + STRETCH) - NEAR)
     cost += MOVE * outside / (1.0 + elapsed / 0.35)
     cost += 0.03 * max(0.0, abs((low + high) / 2 - (hand.low + hand.high) / 2) - 5) / (1.0 + elapsed)
 
@@ -75,13 +78,34 @@ def _play(hand: _Hand, chord: list[Note], time: float, side: int) -> tuple[float
 
     # Habit: the same key again with the same hand (an ostinato, a broken chord, repeated chords).
     cost -= AGAIN * sum(1 for n in chord if n.pitch in mine) / len(chord)
-    # And the hand that plays even notes goes on playing them.
-    if 0 < hand.gap <= EVEN and abs(elapsed - hand.gap) <= 0.2 * hand.gap:
+    # And the hand that plays even notes goes on playing them – by what it has been doing
+    # for a while, not by its last step alone: one longer note does not end a figure, and
+    # one quick note between two of an accompaniment does not begin one.
+    usual = _usual_gap(hand)
+    if 0 < usual <= EVEN and abs(elapsed - usual) <= 0.2 * usual:
         cost -= FIGURE
 
     held += tuple((n.pitch, n.offset) for n in chord)
     keys = tuple((p, t) for p, t in hand.keys if time - t <= MEMORY)[-12:] + tuple((n.pitch, time) for n in chord)
     return cost, _Hand(low, high, time, held, keys, elapsed), mine
+
+
+def _usual_gap(hand: _Hand) -> float:
+    """The time this hand has lately let pass from one attack to the next.
+
+    Judged by its attacks of the last seconds (the ones it still remembers); a hand
+    that has only just come in is taken by its last step.
+    """
+    times: list[float] = []
+    for _, t in reversed(hand.keys):  # in order of time, a chord several times over
+        if not times or t != times[-1]:
+            times.append(t)
+            if len(times) == 7:
+                break
+    if len(times) < 4:
+        return hand.gap
+    gaps = sorted(a - b for a, b in zip(times, times[1:]))
+    return gaps[len(gaps) // 2]
 
 
 def _others_keys(chord: list[Note], mine: frozenset, theirs: frozenset) -> float:

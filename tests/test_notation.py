@@ -243,3 +243,21 @@ def test_engraving_keeps_decimal_points_under_a_german_locale():
         locale.setlocale(locale.LC_NUMERIC, "C")
     assert re.search(r"scale\(\d+,\d", page) is None
     assert "scale(0.72, 0.72)" in page
+
+
+def test_only_much_softer_octaves_count_as_overtones():
+    """A figure that keeps meeting the other hand's note an octave below was played; a faint octave was not."""
+    from melograph.transcribe import _without_overtones
+
+    notes = []
+    for i in range(16):
+        t = 0.25 * i
+        notes.append(Note(58, t, t + 0.1, 70))  # the left hand repeats one note
+        notes.append(Note(65, t + 0.12, t + 0.2, 70))  # the right hand's figure in between …
+        if i % 2:
+            notes.append(Note(70, t + 0.005, t + 0.1, 72))  # … which meets it an octave higher
+    notes += [Note(72, 5.0, 5.4, 90), Note(84, 5.01, 5.3, 30)]  # a loud key, and its octave ringing along
+    notes.sort(key=lambda n: (n.onset, n.pitch))
+    kept = _without_overtones(notes)
+    assert sum(n.pitch == 70 for n in kept) == 8
+    assert not any(n.pitch == 84 for n in kept)

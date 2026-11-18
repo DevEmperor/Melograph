@@ -92,6 +92,7 @@ def make_key(tonic: int, minor: bool) -> Key:
 FOREIGN = np.array([0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.8, 0.0, 0.5, 0.0, 1.0, 0.0])
 KEY_CHANGE = 0.4  # what a change of key signature costs, in bars of entirely foreign notes
 KEY_SOUND = 0.25  # weight of how much the music sounds like a key, against the foreign notes
+KEY_BASS = 1.0  # how much more a bass note says about the key than another note
 
 
 def estimate_keys(notes: list[Note], bar_of, bars: int) -> list[Key]:
@@ -101,8 +102,16 @@ def estimate_keys(notes: list[Note], bar_of, bars: int) -> list[Key]:
     changes when a stretch of the music clearly lives in another key.
     """
     weight = np.zeros((bars, 12))
+    lowest: dict = {}  # position → the lowest note struck there
     for n in notes:
         weight[bar_of(n.pos), n.pitch % 12] += 0.2 + min(n.sustain_end - n.onset, 1.5)
+        if n.pos not in lowest or n.pitch < lowest[n.pos].pitch:
+            lowest[n.pos] = n
+    # What a passage sounds like hangs on its bass more than on anything above it.
+    sound = weight.copy()
+    for n in lowest.values():
+        if n.pitch < 60:
+            sound[bar_of(n.pos), n.pitch % 12] += KEY_BASS * (0.2 + min(n.sustain_end - n.onset, 1.5))
     typical = float(np.mean(weight.sum(axis=1)[weight.sum(axis=1) > 0])) if weight.any() else 1.0
     # emission[bar, tonic]: minus the share of foreign notes under the signature of that major key …
     emission = np.stack([-(weight * np.roll(FOREIGN, tonic)).sum(axis=1) / typical for tonic in range(12)], axis=1)
@@ -112,7 +121,7 @@ def estimate_keys(notes: list[Note], bar_of, bars: int) -> list[Key]:
         (np.roll(MAJOR, tonic) - MAJOR.mean(), np.roll(MINOR, (tonic + 9) % 12) - MINOR.mean()) for tonic in range(12)
     ]
     for index in range(bars):
-        around = weight[max(0, index - 1):index + 2].sum(axis=0)
+        around = sound[max(0, index - 1):index + 2].sum(axis=0)
         if around.sum() <= 0:
             continue
         centred = around - around.mean()

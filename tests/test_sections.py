@@ -76,6 +76,31 @@ def test_new_tempo_gets_a_new_metronome_mark_and_bars_stay_regular():
     assert tempos[1][0] == 9 and abs(tempos[1][1] - 132) < 5
 
 
+def test_metronome_mark_stands_where_the_new_tempo_begins():
+    """A tempo that differs only just enough from an unsteady one before it is noticed late;
+    the mark still belongs to the bar where it began."""
+    from fractions import Fraction
+
+    from melograph.beats import Grid
+    from melograph.marks import tempo_marks
+    from melograph.model import Note
+
+    # six bars at 135, then the quicker tempo: at first not quite far enough from the old one to be sure of
+    bars = [135, 136, 134, 135, 136, 134] + [144, 145, 144, 145] + [149, 150] * 6
+    times = [0.0]
+    for bpm in bars:
+        start = times[-1]
+        times += [start + (k + 1) * 60 / bpm for k in range(4)]
+    grid = Grid(np.array(times), 4, 0, "notes")
+    notes = []
+    for beat in range(len(times) - 1):
+        note = Note(60, times[beat], times[beat] + 0.2, 70)
+        note.pos = Fraction(beat)
+        notes.append(note)
+    marks = [(int(m.pos) // 4 + 1, round(m.bpm)) for m in tempo_marks(notes, grid) if m.bpm]
+    assert [bar for bar, _ in marks] == [1, 7] and abs(marks[1][1] - 148) <= 3
+
+
 def test_bars_of_three_inside_a_piece_in_four():
     four = " ".join(["c5:1 e5:1 g5:1 e5:1"] * 6)
     three = " ".join(["c5:1 e5:1 g5:1"] * 6)
@@ -142,6 +167,20 @@ def test_accompaniment_stays_in_the_left_hand_when_it_climbs():
     low = [n for n in result.notes if n.pitch in (pitch("db4"), pitch("ab4"), pitch("bb4"))]
     assert all(n.hand == LEFT for n in low)
     assert all(n.hand == RIGHT for n in result.notes if n.pitch >= pitch("db5"))
+
+
+def test_figure_over_a_repeated_note_stays_in_the_right_hand():
+    """Sixteenths that keep coming back to one key, over an accompaniment that repeats the note
+    below it: the figure is the right hand's, octaves and all, however close the two come."""
+    figure = "[f4 f5]:1/2 bb4:1/4 f4:1/4 c5:1/4 f4:1/4 bb4:1/4 f4:1/4 f5:1/4 f4:1/4 bb4:1/4 f4:1/4 c5:1/4 f4:1/4 bb4:1/4 f4:1/4 "
+    octaves = "e5:1/4 e4:1/4 g4:1/4 e4:1/4 c5:1/4 e4:1/4 g4:1/4 e4:1/4 e5:2/3 [f4 f5]:2/3 [g4 g5]:2/3 "
+    perf, beats, downs = play(figure * 2 + octaves + figure * 2, "bb3:1/2 " * 40, bpm=140, legato=0.5)
+    result = analyse(perf, beats, downs, Options(title="Test"))
+    assert all(n.hand == LEFT for n in result.notes if n.pitch == pitch("bb3"))
+    assert all(n.hand == RIGHT for n in result.notes if n.pitch > pitch("bb3"))
+    # the octaves of the triplet are written together, in the right hand's triplet
+    third = [atom for voice in result.layout.bars[2].staves[RIGHT] for atom in voice if atom.tuplet]
+    assert [len(atom.notes) for atom in third] == [1, 2, 2]
 
 
 def test_repeated_chords_with_rests_keep_their_rests():

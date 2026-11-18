@@ -17,6 +17,7 @@ from .audio import SAMPLE_RATE
 from .model import Note, Pedal, Performance
 
 SUSTAIN = 64
+PHANTOM = 0.6  # an overtone heard as a note has at most this share of the loudness of its note
 
 
 def pick_device(requested: str = "auto") -> str:
@@ -94,10 +95,12 @@ def _without_overtones(notes: list[Note]) -> list[Note]:
     """Drop notes that are really the overtone of another note.
 
     A bright string can make the transcriber hear its octave or twelfth as a
-    key of its own.  Such a phantom starts together with the real note and is
-    neither louder nor longer.  A melody really played in octaves looks the
-    same note by note – but there nearly every note of the line is doubled,
-    while phantoms turn up only here and there.
+    key of its own.  Such a phantom starts together with the real note, is much
+    softer and no longer.  A key that is about as loud as the one below it was
+    played: octaves are what pianists' hands do all the time, and a figure of
+    one hand keeps meeting the repeated note of the other.  A soft line really
+    played in octaves looks like phantoms note by note – but there nearly every
+    note of the line is doubled, while phantoms turn up only here and there.
     """
     from bisect import bisect_left, bisect_right
 
@@ -107,7 +110,7 @@ def _without_overtones(notes: list[Note]) -> list[Note]:
         for o in notes[bisect_left(onsets, n.onset - 0.04):bisect_right(onsets, n.onset + 0.04)]:
             if (
                 n.pitch - o.pitch in (12, 19, 24)
-                and n.velocity <= o.velocity + 5
+                and n.velocity <= PHANTOM * o.velocity
                 and n.offset - n.onset <= 1.2 * (o.offset - o.onset) + 0.03
             ):
                 source[id(n)] = o

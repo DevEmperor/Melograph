@@ -47,7 +47,7 @@ def shape(
         mine = [n for n in notes if n.hand == hand]
         if not mine:
             continue
-        events = _events(mine, quantisation, grid, anchors, pedals, max_voices, staccato)
+        events = _events(mine, quantisation.of_hand(hand), grid, anchors, pedals, max_voices, staccato)
         _assign_streams(events)
         for event in events:
             for n in event.notes:
@@ -123,10 +123,13 @@ def _events(
 
             if following is not None:
                 gap = following - pos
-                if pos.denominator != 1 and gap > to_beat and key_length < 0.6 * float(gap):
+                triplet = pos.denominator % 3 == 0 and not grid.meter_at(pos).compound
+                if pos.denominator != 1 and gap > to_beat and key_length < 0.6 * float(gap) and not (triplet and gap <= 1):
                     # Struck off the beat and let go before the next note: written to the end of
                     # its beat, then a rest.  A tie over the beat says the key stays down; it is
                     # not there to fill a gap (repeated chords with rests between them).
+                    # (The middle note of a quarter-note triplet does run over the beat: that
+                    # is its value, not a tie.)
                     length = to_beat
                 elif gap <= 1 or sound_length >= 0.6 * float(gap):
                     length = gap

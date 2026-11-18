@@ -17,7 +17,7 @@ from .marks import (
 )
 from .model import LEFT, RIGHT, Meter, Note, Performance
 from .ornaments import find_rolls, find_trills
-from .quantize import find_graces, quantise, swing_warp
+from .quantize import find_graces, quantise, quantise_hands, swing_warp
 from .spelling import Key, estimate_keys, parse_key, spell
 from .voices import shape
 
@@ -152,6 +152,9 @@ def analyse(
         quantisation = quantise(notes, grid, options.finest, triplets, warp=warp)
 
     split_hands(notes, options.split_pitch)
+    # Now that the hands are known, each gets its own subdivision of the beat: a triplet
+    # in one hand over plain eighths in the other is three against two, not a blur of sixteenths.
+    quantisation = quantise_hands(notes, grid, options.finest, triplets, warp)
     shape(notes, quantisation, grid, performance.pedals, options.max_voices, options.staccato)
     graces = [g for n in notes for g in n.graces]
     for g in graces:  # a grace note goes wherever its main note goes

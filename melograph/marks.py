@@ -559,12 +559,19 @@ def tempo_marks(notes: list[Note], grid: Grid) -> list[TempoMark]:
     opening = tempos[:4]
     current = float(np.median(opening))
     marks = [TempoMark(F(first), bpm=current)]
+    marked = 0  # the bar of the last mark
     i = 1
     while i < count:
         new = settles(i, current)
         if new is not None:
             current = new
-            marks.append(TempoMark(bars[i][0], bpm=current))
+            # The mark stands where the new tempo began.  That may be some bars back: a tempo
+            # that differs only just enough is noticed late.
+            began = i
+            while began - 1 > marked and abs(tempos[began - 1] / new - 1) <= 0.07:
+                began -= 1
+            marks.append(TempoMark(bars[began][0], bpm=current))
+            marked = i
             i += 3
             continue
         if tempos[i] / current <= 0.86:
@@ -576,8 +583,10 @@ def tempo_marks(notes: list[Note], grid: Grid) -> list[TempoMark]:
             onward = k < count and settles(k, current) is not None
             if pause or back or onward or k == count:
                 marks.append(TempoMark(bars[i][0], text="rit."))
+                marked = i
                 if back and not onward:
                     marks.append(TempoMark(bars[k][0], text="a tempo"))
+                    marked = k
             i = max(k, i + 1)
             continue
         i += 1
