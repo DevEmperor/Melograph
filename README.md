@@ -63,8 +63,9 @@ pulse and the bars, and writes the music the way an engraver would:
   held while the hand plays on – and nowhere else.
 - **Rhythm** that reads well: each beat gets its own subdivision (eighths,
   sixteenths, triplets, quarter-note triplets), chosen for the whole piece
-  together, so one late note does not turn a bar into a triplet. Ties and rests
-  follow engraving rules; simple syncopations and dotted figures stay one note.
+  together, so one late note does not turn a bar into a triplet – and for each
+  hand by itself, so a triplet over plain eighths is three against two. Ties and
+  rests follow engraving rules; simple syncopations and dotted figures stay one note.
 - **Time signature and pickup**, including compound meters (6/8, 9/8, 12/8) –
   and **changes of metre**: a section in 12/8 inside a piece in 4/4, a single
   bar of 3/4.
@@ -146,8 +147,9 @@ opens instantly.
 
 1. **Hearing the keys** – [Transkun](https://github.com/Yujia-Yan/Transkun)
    (Yan & Duan, ISMIR 2024), a transformer with a neural semi-CRF, gives onset,
-   release, loudness and pedal of every note. Overtones that were heard as notes
-   of their own are removed again.
+   release, loudness and pedal of every note. A much softer octave or twelfth
+   that only rings along with a note is taken out again; octaves that were
+   played stay.
 2. **Pulse and bars** – [Beat This!](https://github.com/CPJKU/beat_this)
    (Foscarin, Schlüter & Widmer, ISMIR 2024) says fifty times a second how
    likely a beat and a downbeat are. Melograph reads these probabilities
@@ -157,15 +159,18 @@ opens instantly.
    that a change of metre or a fermata does not push everything after it off
    the beat. A pause is one long beat, and bars that a ritardando has pulled
    out of shape are counted again (`melograph/beats.py`).
-3. **Rhythm** – a dynamic programme picks one subdivision per beat for the whole
-   piece; grace notes, trills and rolled chords are recognised first, so they do
-   not end up as clouds of 32nd notes. Stretches whose beats fall into three
-   become compound time.
+3. **Rhythm** – a dynamic programme picks the subdivision of every beat for the
+   whole piece; grace notes, trills and rolled chords are recognised first, so
+   they do not end up as clouds of 32nd notes. Stretches whose beats fall into
+   three become compound time. Once the hands are known, each gets its own
+   subdivision: a triplet over plain eighths is written as three against two,
+   and a figure that comes back is written the same way each time.
 4. **Hands** – every chord is cut at some pitch; a beam search over the piece
    decides where, by what two real hands do: stretch, travel, time to travel,
    keys still held, hands not crossing – and habit: a hand plays again the keys
-   it has just played and goes on with the figure it is running, which keeps
-   an accompaniment in the left hand when it climbs into the tune's register.
+   it has just played and keeps the rhythm it has been playing, which keeps
+   an accompaniment in the left hand when it climbs into the tune's register
+   and a figure in the right hand when it dips into the accompaniment's.
 5. **Lengths and voices** – a note lasts until the next one in the same hand; a
    rest stands where the sound really stops or a detached note leaves a gap; a
    tie over a beat or a bar line only where the key stays down; a second voice
@@ -183,11 +188,14 @@ opens instantly.
 - Best with **solo piano** in a decent recording. Voices or other instruments
   turn into wrong notes.
 - Changes of metre and key are found where the music makes them clear. In very
-  free **rubato** a bar can come out a beat short or long, and music without a
-  felt pulse gives restless rhythms – `--grid 8` or `--triplets off` help, and
-  a time signature or key you set yourself holds for the whole piece.
-- A rhythm between two readings is written as it was played: a lazy
-  quarter-note triplet may come out as dotted eighths.
+  free **rubato** a bar can come out a beat short or long, a few bars in
+  another metre can have their bar lines a beat off, and music without a felt
+  pulse gives restless rhythms – `--grid 8` or `--triplets off` help, and a
+  time signature or key you set yourself holds for the whole piece.
+- In chromatic music the **key signature** of a passage can differ from what
+  an editor would choose; the notes are the same, with more accidentals.
+- A rhythm between two readings is written as it was played, unless the same
+  figure is clear elsewhere in the piece.
 - The hand split follows what is comfortable to play, not always what a
   composer wrote; dense **broken-chord textures** sometimes give a note to the
   wrong hand. Fingerings, repeats and lyrics are not written.
